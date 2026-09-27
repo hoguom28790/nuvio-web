@@ -8,6 +8,13 @@ import { hlsJsEngine } from "./engines/hlsJsEngine.js";
 import { dashJsEngine } from "./engines/dashJsEngine.js";
 import { isTerminalHlsHttpStatus } from "./hlsNetworkErrorPolicy.js";
 import { loadStreamingLibs } from "../../runtime/loadStreamingLibs.js";
+import {
+  getBufferQuotaBytes,
+  getAllocatedQuotaBytes,
+  MultiThreadedPreloader,
+  createMultiThreadedHlsLoader,
+  MultiThreadedRangePreloader
+} from "./multiThreadedPreloader.js";
 
 const MIN_PROGRESS_SYNC_DURATION_MS = 1000;
 const HLS_TRANSIENT_LEVEL_404_RETRY_LIMIT = 2;
@@ -44,6 +51,8 @@ export const PlayerController = {
   startupPresentationAudioMuted: false,
   desiredPlaybackRate: 1,
   videoElementListeners: [],
+  multiThreadedPreloader: null,
+  rangePreloader: null,
   markPlaybackWatched,
   externalProgressHandoff: null,
 
@@ -532,6 +541,9 @@ export const PlayerController = {
     }
     try {
       this.video.currentTime = seconds;
+      if (this.multiThreadedPreloader) {
+        this.multiThreadedPreloader.onSeek(seconds);
+      }
       return true;
     } catch (_) {
       return false;
@@ -787,6 +799,12 @@ export const PlayerController = {
   },
 
   teardownHlsInstance() {
+    if (this.multiThreadedPreloader) {
+      try {
+        this.multiThreadedPreloader.destroy();
+      } catch (_) {}
+      this.multiThreadedPreloader = null;
+    }
     if (!this.hlsInstance) {
       return;
     }
@@ -811,16 +829,32 @@ export const PlayerController = {
   },
 
   teardownAdaptiveInstances() {
+    if (this.rangePreloader) {
+      try {
+        this.rangePreloader.destroy();
+      } catch (_) {}
+      this.rangePreloader = null;
+    }
     this.teardownHlsInstance();
     this.teardownDashInstance();
     this.playbackEngine = "none";
   },
 
   applyNativeSource(url, mimeType = null, engineName = "native-file") {
+    if (this.rangePreloader) {
+      try {
+        this.rangePreloader.destroy();
+      } catch (_) {}
+      this.rangePreloader = null;
+    }
     if (!nativeVideoEngine.load(this.video, url, mimeType)) {
       return false;
     }
     this.playbackEngine = String(engineName || "native-file");
+    if (this.playbackEngine === "native-file") {
+      this.rangePreloader = new MultiThreadedRangePreloader({ concurrency: 4 });
+      this.rangePreloader.start(url, this.currentPlaybackHeaders);
+    }
     return true;
   },
 
@@ -862,19 +896,28 @@ export const PlayerController = {
     return Object.fromEntries(entries);
   },
 
-  buildHlsConfig(requestHeaders = {}) {
+  buildHlsConfig(requestHeaders = {}, Hls = null) {
     const forwardedHeaders = this.normalizePlaybackHeaders(requestHeaders);
+    const allocatedBufferBytes = getAllocatedQuotaBytes();
+    const customFLoader =
+      Hls && this.multiThreadedPreloader
+        ? createMultiThreadedHlsLoader(Hls, this.multiThreadedPreloader)
+        : null;
+
     return {
       autoStartLoad: false,
       enableWorker: true,
       lowLatencyMode: false,
-      backBufferLength: 90,
-      maxBufferLength: 30,
-      maxMaxBufferLength: 60,
+      backBufferLength: 300,
+      maxBufferLength: 600,
+      maxMaxBufferLength: 1200,
+      maxBufferSize: allocatedBufferBytes,
       maxBufferHole: 0.5,
-      startFragPrefetch: false,
+      startFragPrefetch: true,
+      progressive: true,
       fragLoadingTimeOut: 20000,
       manifestLoadingTimeOut: 20000,
+      ...(customFLoader ? { fLoader: customFLoader } : {}),
       xhrSetup: (xhr) => {
         Object.entries(forwardedHeaders).forEach(([headerName, headerValue]) => {
           try {
@@ -949,7 +992,11 @@ export const PlayerController = {
     }
     this.teardownHlsInstance();
     this.teardownDashInstance();
-    const hls = hlsJsEngine.create(this.buildHlsConfig(requestHeaders));
+    this.multiThreadedPreloader = new MultiThreadedPreloader({
+      concurrency: 4,
+      prefetchWindowSeconds: 600
+    });
+    const hls = hlsJsEngine.create(this.buildHlsConfig(requestHeaders, Hls));
     if (!hls) {
       return false;
     }
@@ -1077,9 +1124,15 @@ export const PlayerController = {
       });
     });
 
-    hls.on(Hls.Events.LEVEL_LOADED, () => {
+    hls.on(Hls.Events.LEVEL_LOADED, (_, data = {}) => {
       clearTransientLevelNotFoundRetry();
       transientLevelNotFoundRetries = 0;
+      if (data?.details?.fragments && this.multiThreadedPreloader) {
+        this.multiThreadedPreloader.setFragments(
+          data.details.fragments,
+          this.normalizePlaybackHeaders(requestHeaders)
+        );
+      }
     });
 
     hls.on(Hls.Events.MEDIA_ATTACHED, () => {
@@ -1168,9 +1221,11 @@ export const PlayerController = {
           fastSwitchEnabled: true,
           lowLatencyEnabled: false,
           scheduleWhilePaused: false,
-          bufferToKeep: 20,
-          bufferPruningInterval: 20,
-          stableBufferTime: 12
+          bufferToKeep: 300,
+          bufferPruningInterval: 60,
+          stableBufferTime: 120,
+          bufferTimeAtTopQuality: 300,
+          bufferTimeAtTopQualityLongForm: 600
         }
       });
       player.initialize(this.video, url, true);
@@ -1570,6 +1625,18 @@ export const PlayerController = {
       this.videoElementListeners.push({ target: video, eventName, handler });
     };
 
+    listen("timeupdate", () => {
+      if (this.multiThreadedPreloader && this.video) {
+        this.multiThreadedPreloader.updatePosition(this.video.currentTime);
+      }
+    });
+
+    listen("seeking", () => {
+      if (this.multiThreadedPreloader && this.video) {
+        this.multiThreadedPreloader.onSeek(this.video.currentTime);
+      }
+    });
+
     listen("ended", () => {
       this.isPlaying = false;
       const context = this.createProgressContext();
@@ -1644,6 +1711,7 @@ export const PlayerController = {
     this.video.muted = false;
     this.video.defaultMuted = false;
     this.video.volume = 1;
+    void getBufferQuotaBytes();
 
     if (!this.lifecycleBound) {
       this.lifecycleBound = true;
