@@ -1,4 +1,4 @@
-import { LocalStore } from "../../core/storage/localStore.js";
+﻿import { LocalStore } from "../../core/storage/localStore.js";
 
 const WATCH_PROGRESS_KEY = "watchProgressItems";
 const MAX_REASONABLE_PROGRESS_DURATION_MS = 24 * 60 * 60 * 1000;
@@ -189,7 +189,7 @@ export const WatchProgressStore = {
     const next = dedupeAndSort([
       normalized,
       ...items.filter((item) => progressKey(item) !== key)
-    ]).slice(0, 5000);
+    ]).slice(0, 1000);
     persistProgressItems(next);
     notifyChange(pid, "upsert", { authoritative, item: normalized });
   },
@@ -227,8 +227,9 @@ export const WatchProgressStore = {
     const normalized = (Array.isArray(items) ? items : [])
       .map((item) => normalizeProgress(item, pid))
       .filter((item) => Boolean(item.contentId));
-    const next = dedupeAndSort([...normalized, ...keepOtherProfiles]).slice(0, 5000);
+    const next = dedupeAndSort([...normalized, ...keepOtherProfiles]).slice(0, 1000);
     persistProgressItems(next);
     notifyChange(pid, "replaceForProfile");
   }
 };
+
