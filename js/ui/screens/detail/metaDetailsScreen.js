@@ -47,8 +47,12 @@ import {
 import {
   createBrowserOfflineSubtitlePicker,
   createBrowserOfflineSubtitleSnapshot
-} from "../../components/browserOfflineSubtitlePicker.js";
 import { normalizeSubtitleForDisplay } from "../../components/browserSubtitleDisplay.js";
+import {
+  enrichCastPhotos,
+  getActorInitials,
+  getActorAvatarGradient
+} from "../../../core/cast/castPhotoService.js";
 import {
   bindDesktopNavigationEvents,
   renderDesktopNavigation
@@ -2153,6 +2157,7 @@ export const MetaDetailsScreen = {
       void this.backfillOfflineDisplayMetadata(meta);
     }
     this.castItems = extractCast(meta);
+    void this.triggerCastPhotoEnrichment();
     const progressItemsForDetail = this.resumeProgress
       ? [this.resumeProgress, ...allProgressItems]
       : allProgressItems;
@@ -2251,6 +2256,7 @@ export const MetaDetailsScreen = {
       this.selectedRatingSeason = this.selectedRatingSeason || this.selectedSeason || 1;
       this.nextEpisodeToWatch = this.computeNextEpisodeToWatch(this.resumeProgress || progress);
       this.updateRenderedDetailSections(this.meta);
+      void this.triggerCastPhotoEnrichment();
       void this.loadMdbListRatings(this.meta, token);
       void this.refreshTrailerSource(this.meta, token);
       void this.loadTraktComments({ force: true });
@@ -3298,6 +3304,26 @@ export const MetaDetailsScreen = {
     });
     const fallbackCast = extractCast({ credits: enrichment?.credits || null });
     return Array.isArray(fallbackCast) ? fallbackCast : [];
+  },
+
+  triggerCastPhotoEnrichment() {
+    if (!Array.isArray(this.castItems) || !this.castItems.length) return;
+    enrichCastPhotos(this.castItems, {
+      onPhotoFound: (person, photoUrl) => {
+        if (!person || !photoUrl || !this.container) return;
+        const selectorName = escapeSelectorValue(person.name || "");
+        const card = this.container.querySelector(`.movie-cast-card[data-cast-name="${selectorName}"]`);
+        if (card) {
+          card.dataset.castPhoto = photoUrl;
+          const avatar = card.querySelector(".movie-cast-avatar");
+          if (avatar) {
+            const initials = getActorInitials(person.name || "");
+            const gradient = getActorAvatarGradient(person.name || "");
+            avatar.innerHTML = `<img class="movie-cast-avatar-image" src="${escapeAttribute(photoUrl)}" alt="${escapeAttribute(person.name || "")}" loading="lazy" decoding="async" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="movie-cast-avatar-placeholder" style="display:none; background:${gradient};">${escapeHtml(initials)}</div>`;
+          }
+        }
+      }
+    }).catch((err) => console.warn("[CastPhotoEnrichment] error", err));
   },
 
   async fetchSeriesRatingsBySeason(meta) {
@@ -4539,21 +4565,24 @@ export const MetaDetailsScreen = {
       .slice(0, 18)
       .map((person) => {
         const tmdbPersonId = String(person?.tmdbId || "").trim();
+        const initials = getActorInitials(person?.name || "");
+        const gradient = getActorAvatarGradient(person?.name || "");
+        const photoUrl = String(person?.photo || "").trim();
         return `
       <article class="movie-cast-card series-cast-card focusable"
                data-action="openCastDetail" role="button" tabindex="0"
                data-cast-id="${escapeAttribute(tmdbPersonId)}"
                data-cast-key="${escapeHtml(String(person.tmdbId || `${person.name || ""}:${person.character || ""}`))}"
-               data-cast-name="${escapeHtml(person.name || "")}"
-               data-cast-role="${escapeHtml(person.character || "")}"
-               data-cast-photo="${escapeHtml(person.photo || "")}"
+               data-cast-name="${escapeAttribute(person.name || "")}"
+               data-cast-role="${escapeAttribute(person.character || "")}"
+               data-cast-photo="${escapeAttribute(photoUrl)}"
                title="Tìm kiếm phim của ${escapeHtml(person.name || "")}"
                style="cursor: pointer;">
         <div class="movie-cast-avatar">
           ${
-            person.photo
-              ? `<img class="movie-cast-avatar-image" src="${escapeAttribute(person.photo)}" alt="" loading="lazy" decoding="async" onerror="this.hidden=true" />`
-              : ""
+            photoUrl
+              ? `<img class="movie-cast-avatar-image" src="${escapeAttribute(photoUrl)}" alt="${escapeAttribute(person.name || "")}" loading="lazy" decoding="async" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="movie-cast-avatar-placeholder" style="display:none; background:${gradient};">${escapeHtml(initials)}</div>`
+              : `<div class="movie-cast-avatar-placeholder" style="background:${gradient};">${escapeHtml(initials)}</div>`
           }
         </div>
         <div class="movie-cast-name" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.4);">${escapeHtml(person.name || "")}</div>
@@ -7494,14 +7523,25 @@ export const MetaDetailsScreen = {
       return "";
     }
     return this.castItems
-      .map(
-        (person) => `
-      <div class="card focusable">
-        <div style="font-weight:700;">${person.name}</div>
-        <div style="opacity:0.8;">Cast</div>
+      .slice(0, 18)
+      .map((person) => {
+        const initials = getActorInitials(person?.name || "");
+        const gradient = getActorAvatarGradient(person?.name || "");
+        const photoUrl = String(person?.photo || "").trim();
+        return `
+      <div class="card focusable movie-cast-card" data-action="openCastDetail" data-cast-name="${escapeAttribute(person.name || "")}">
+        <div class="movie-cast-avatar" style="width: 72px; height: 72px; margin: 0 auto 8px; border-radius: 50%; overflow: hidden;">
+          ${
+            photoUrl
+              ? `<img class="movie-cast-avatar-image" src="${escapeAttribute(photoUrl)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" /><div class="movie-cast-avatar-placeholder" style="display:none; background:${gradient};">${escapeHtml(initials)}</div>`
+              : `<div class="movie-cast-avatar-placeholder" style="background:${gradient};">${escapeHtml(initials)}</div>`
+          }
+        </div>
+        <div style="font-weight:700;">${escapeHtml(person.name || "")}</div>
+        <div style="opacity:0.8;">${escapeHtml(person.character || "Cast")}</div>
       </div>
-    `
-      )
+    `;
+      })
       .join("");
   },
 

@@ -4138,6 +4138,8 @@ html.desktop-browser {
   height: 96px;
   margin: 0 auto 9px;
   border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   transition: box-shadow 140ms ease, transform 140ms ease;
 }
 
@@ -4146,6 +4148,22 @@ html.desktop-browser {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: opacity 200ms ease;
+}
+
+.desktop-browser #detail .movie-cast-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  user-select: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .desktop-browser #detail .movie-cast-name {

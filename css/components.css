@@ -15287,6 +15287,22 @@ html[data-card-depth="true"][data-card-depth-trailers="true"] .detail-trailer-ca
   border-radius: 50%;
   background: #2a2f37 center center / cover no-repeat;
   margin-bottom: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.movie-cast-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  font-size: clamp(18px, 2.5vw, 42px);
+  font-weight: 700;
+  color: #ffffff;
+  user-select: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .movie-cast-name {
