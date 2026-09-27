@@ -1,0 +1,341 @@
+import { AuthManager } from "../auth/authManager.js";
+import { MAX_PROFILES, ProfileManager } from "./profileManager.js";
+import { SupabaseApi } from "../../data/remote/supabase/supabaseApi.js";
+import { LocalStore } from "../storage/localStore.js";
+
+const TABLE = "tv_profiles";
+const FALLBACK_TABLE = "profiles";
+const PULL_RPC = "sync_pull_profiles";
+const PUSH_RPC = "sync_push_profiles";
+const PULL_LOCKS_RPC = "sync_pull_profile_locks";
+const SET_PROFILE_PIN_RPC = "set_profile_pin";
+const CLEAR_PROFILE_PIN_RPC = "clear_profile_pin";
+const VERIFY_PROFILE_PIN_RPC = "verify_profile_pin";
+const DELETE_PROFILE_DATA_RPC = "sync_delete_profile_data";
+const PROFILE_LOCK_STATE_KEY = "profileLockStates";
+
+function shouldTryLegacyTable(error) {
+  if (!error) {
+    return false;
+  }
+  if (error.status === 404) {
+    return true;
+  }
+  if (typeof error.code === "string" && error.code === "PGRST205") {
+    return true;
+  }
+  const message = String(error.message || "");
+  return message.includes("PGRST205") || message.includes("Could not find the table");
+}
+
+export function shouldTryProfileTableFallback(error) {
+  if (!error) {
+    return false;
+  }
+  if (error.status === 404) {
+    return true;
+  }
+  if (typeof error.code === "string" && error.code === "PGRST202") {
+    return true;
+  }
+  const message = `${String(error.message || "")} ${String(error.detail || "")}`;
+  return message.includes("PGRST202") || message.includes("Could not find the function");
+}
+
+function mapProfileRow(row = {}) {
+  const profileIndex = Number(row.profile_index || row.profileIndex || row.id || 1);
+  const normalizedIndex =
+    Number.isFinite(profileIndex) && profileIndex > 0 ? Math.trunc(profileIndex) : 1;
+  return {
+    id: String(normalizedIndex),
+    profileIndex: normalizedIndex,
+    name: row.name || `Profile ${normalizedIndex}`,
+    avatarColorHex: row.avatar_color_hex || row.avatarColorHex || "#1E88E5",
+    avatarId: row.avatar_id || row.avatarId || null,
+    avatarUrl: row.avatar_url || row.avatarUrl || null,
+    usesPrimaryAddons:
+      typeof row.uses_primary_addons === "boolean"
+        ? row.uses_primary_addons
+        : Boolean(row.usesPrimaryAddons),
+    usesPrimaryPlugins:
+      typeof row.uses_primary_plugins === "boolean"
+        ? row.uses_primary_plugins
+        : Boolean(row.usesPrimaryPlugins),
+    isPrimary: typeof row.is_primary === "boolean" ? row.is_primary : normalizedIndex === 1
+  };
+}
+
+export const ProfileSyncService = {
+  async pull() {
+    try {
+      if (!AuthManager.isAuthenticated) {
+        return [];
+      }
+      let rows = [];
+      try {
+        rows = await SupabaseApi.rpc(PULL_RPC, {}, true);
+      } catch (rpcError) {
+        // A table fallback is useful only for deployments that do not expose
+        // the profiles RPC. Retrying network, auth, or server failures through
+        // another failed proxy request can otherwise hold boot past its watchdog.
+        if (!shouldTryProfileTableFallback(rpcError)) {
+          throw rpcError;
+        }
+        const ownerId = await AuthManager.getEffectiveUserId();
+        try {
+          rows = await SupabaseApi.select(
+            FALLBACK_TABLE,
+            `user_id=eq.${encodeURIComponent(ownerId)}&select=*&order=profile_index.asc`,
+            true
+          );
+        } catch (primaryError) {
+          if (!shouldTryLegacyTable(primaryError)) {
+            throw rpcError;
+          }
+          rows = await SupabaseApi.select(
+            TABLE,
+            `owner_id=eq.${encodeURIComponent(ownerId)}&select=*&order=profile_index.asc`,
+            true
+          );
+        }
+      }
+      const profiles = (rows || []).map((row) => mapProfileRow(row));
+      if (profiles.length) {
+        await ProfileManager.replaceProfiles(profiles);
+      }
+      return profiles;
+    } catch (error) {
+      console.warn("Profile sync pull failed", error);
+      return [];
+    }
+  },
+
+  async push() {
+    try {
+      if (!AuthManager.isAuthenticated) {
+        return false;
+      }
+      const profiles = await ProfileManager.getProfiles();
+      try {
+        await SupabaseApi.rpc(
+          PUSH_RPC,
+          {
+            p_client_max_profiles: MAX_PROFILES,
+            p_profiles: profiles.map((profile) => {
+              const profileIndex = Number(profile.profileIndex || profile.id || 1);
+              const avatarUrl = String(profile.avatarUrl || "").trim() || null;
+              return {
+                profile_index:
+                  Number.isFinite(profileIndex) && profileIndex > 0 ? Math.trunc(profileIndex) : 1,
+                name: profile.name,
+                avatar_color_hex: profile.avatarColorHex || "#1E88E5",
+                avatar_id: avatarUrl ? null : profile.avatarId || null,
+                avatar_url: avatarUrl,
+                uses_primary_addons: Boolean(profile.usesPrimaryAddons),
+                uses_primary_plugins: Boolean(profile.usesPrimaryPlugins)
+              };
+            })
+          },
+          true
+        );
+        return true;
+      } catch (rpcError) {
+        console.warn("Profile sync push RPC failed, falling back to table sync", rpcError);
+      }
+
+      const ownerId = await AuthManager.getEffectiveUserId();
+      const rows = profiles.map((profile) => {
+        const profileIndex = Number(profile.profileIndex || profile.id || 1);
+        const avatarUrl = String(profile.avatarUrl || "").trim() || null;
+        return {
+          id: profile.id,
+          owner_id: ownerId,
+          profile_index:
+            Number.isFinite(profileIndex) && profileIndex > 0 ? Math.trunc(profileIndex) : 1,
+          name: profile.name,
+          avatar_color_hex: profile.avatarColorHex || "#1E88E5",
+          avatar_id: avatarUrl ? null : profile.avatarId || null,
+          avatar_url: avatarUrl,
+          uses_primary_addons: Boolean(profile.usesPrimaryAddons),
+          uses_primary_plugins: Boolean(profile.usesPrimaryPlugins),
+          is_primary: Boolean(profile.isPrimary)
+        };
+      });
+
+      const fallbackRows = rows.map((row) => ({
+        user_id: ownerId,
+        profile_index: row.profile_index,
+        name: row.name,
+        avatar_color_hex: row.avatar_color_hex,
+        avatar_id: row.avatar_id || null,
+        avatar_url: row.avatar_url || null,
+        uses_primary_addons: Boolean(row.uses_primary_addons),
+        uses_primary_plugins: Boolean(row.uses_primary_plugins)
+      }));
+      try {
+        await SupabaseApi.delete(FALLBACK_TABLE, `user_id=eq.${encodeURIComponent(ownerId)}`, true);
+        if (fallbackRows.length) {
+          await SupabaseApi.upsert(FALLBACK_TABLE, fallbackRows, "user_id,profile_index", true);
+        }
+      } catch (primaryError) {
+        if (!shouldTryLegacyTable(primaryError)) {
+          throw primaryError;
+        }
+        await SupabaseApi.upsert(TABLE, rows, "id", true);
+      }
+      return true;
+    } catch (error) {
+      console.warn("Profile sync push failed", error);
+      return false;
+    }
+  },
+
+  // Which profiles are locked, remembered locally.
+  //
+  // A lock that only exists in an answer from the network is not a lock. This
+  // returned an empty map whenever the pull failed -- offline, or before the
+  // session was restored -- and an empty map reads as "no profile has a PIN",
+  // so every locked profile opened without being asked for one. The PIN itself
+  // is verified server-side and always was; what went missing was the knowledge
+  // that a PIN existed to ask for.
+  //
+  // The last answer is kept, so a failed pull leaves the locks standing. A
+  // locked profile still cannot be entered offline, because verification needs
+  // the server -- it now says so instead of letting the profile through.
+  readCachedProfileLockStates() {
+    const cached = LocalStore.get(PROFILE_LOCK_STATE_KEY, null);
+    return cached && typeof cached === "object" && !Array.isArray(cached) ? cached : {};
+  },
+
+  // Set and cleared locks have to reach the cache as well, or a PIN added and
+  // then taken offline before the next pull leaves the cache saying otherwise.
+  rememberProfileLockState(profileId, enabled) {
+    const key = String(Math.trunc(Number(profileId) || 0));
+    if (!key || key === "0") return;
+    LocalStore.set(PROFILE_LOCK_STATE_KEY, {
+      ...this.readCachedProfileLockStates(),
+      [key]: Boolean(enabled)
+    });
+  },
+
+  forgetProfileLockState(profileId) {
+    const key = String(Math.trunc(Number(profileId) || 0));
+    const states = this.readCachedProfileLockStates();
+    if (!(key in states)) return;
+    delete states[key];
+    LocalStore.set(PROFILE_LOCK_STATE_KEY, states);
+  },
+
+  async pullProfileLockStates() {
+    try {
+      if (!AuthManager.isAuthenticated) {
+        return this.readCachedProfileLockStates();
+      }
+      const rows = await SupabaseApi.rpc(PULL_LOCKS_RPC, {}, true);
+      const states = (Array.isArray(rows) ? rows : []).reduce((accumulator, row) => {
+        const profileIndex = Number(row?.profile_index ?? row?.profileIndex ?? row?.id ?? 0);
+        if (Number.isFinite(profileIndex) && profileIndex > 0) {
+          accumulator[String(Math.trunc(profileIndex))] = Boolean(
+            row?.pin_enabled ?? row?.pinEnabled
+          );
+        }
+        return accumulator;
+      }, {});
+      LocalStore.set(PROFILE_LOCK_STATE_KEY, states);
+      return states;
+    } catch (error) {
+      console.warn("Profile lock state pull failed", error);
+      return this.readCachedProfileLockStates();
+    }
+  },
+
+  async setProfilePin(profileId, pin, currentPin = null) {
+    try {
+      if (!AuthManager.isAuthenticated) {
+        return false;
+      }
+      const params = {
+        p_profile_id: Number(profileId),
+        p_pin: String(pin || "")
+      };
+      if (String(currentPin || "").trim()) {
+        params.p_current_pin = String(currentPin).trim();
+      }
+      await SupabaseApi.rpc(SET_PROFILE_PIN_RPC, params, true);
+      this.rememberProfileLockState(profileId, true);
+      return true;
+    } catch (error) {
+      console.warn("Set profile PIN failed", error);
+      return false;
+    }
+  },
+
+  async clearProfilePin(profileId, currentPin = null) {
+    try {
+      if (!AuthManager.isAuthenticated) {
+        return false;
+      }
+      const params = {
+        p_profile_id: Number(profileId)
+      };
+      if (String(currentPin || "").trim()) {
+        params.p_current_pin = String(currentPin).trim();
+      }
+      await SupabaseApi.rpc(CLEAR_PROFILE_PIN_RPC, params, true);
+      this.rememberProfileLockState(profileId, false);
+      return true;
+    } catch (error) {
+      console.warn("Clear profile PIN failed", error);
+      return false;
+    }
+  },
+
+  async verifyProfilePin(profileId, pin) {
+    try {
+      if (!AuthManager.isAuthenticated) {
+        return null;
+      }
+      const response = await SupabaseApi.rpc(
+        VERIFY_PROFILE_PIN_RPC,
+        {
+          p_profile_id: Number(profileId),
+          p_pin: String(pin || "")
+        },
+        true
+      );
+      const payload = Array.isArray(response) ? response[0] || {} : response || {};
+      return {
+        unlocked: Boolean(payload?.unlocked),
+        retryAfterSeconds: Math.max(
+          0,
+          Number(payload?.retry_after_seconds ?? payload?.retryAfterSeconds ?? 0) || 0
+        )
+      };
+    } catch (error) {
+      console.warn("Verify profile PIN failed", error);
+      return null;
+    }
+  },
+
+  async deleteProfileData(profileId) {
+    // Profile numbers are handed out again after a delete, so a lock left in
+    // the cache would be inherited by whoever takes the number next.
+    this.forgetProfileLockState(profileId);
+    try {
+      if (!AuthManager.isAuthenticated) {
+        return false;
+      }
+      await SupabaseApi.rpc(
+        DELETE_PROFILE_DATA_RPC,
+        {
+          p_profile_id: Number(profileId)
+        },
+        true
+      );
+      return true;
+    } catch (error) {
+      console.warn("Delete remote profile data failed", error);
+      return false;
+    }
+  }
+};

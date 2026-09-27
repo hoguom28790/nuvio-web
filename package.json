@@ -1,31 +1,56 @@
 {
-  "name": "nuvio-web-pwa",
+  "name": "nuvioweb",
   "private": true,
-  "version": "0.1.0-alpha.1",
   "type": "module",
-  "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build && node -e \"require('node:fs').copyFileSync('dist/index.html','dist/404.html')\"",
-    "preview": "vite preview --host 0.0.0.0",
-    "check": "tsc -b --pretty false",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs",
-    "verify:remux": "node scripts/verify-remux.mjs"
+  "version": "0.1.2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alphasquare404/NuvioWeb.git"
   },
-  "dependencies": {
-    "@mediabunny/ac3": "^1.54.0",
-    "crypto-js": "^4.2.0",
-    "hls.js": "^1.6.13",
-    "lucide-react": "^0.468.0",
-    "mediabunny": "^1.54.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+  "bugs": {
+    "url": "https://github.com/alphasquare404/NuvioWeb/issues"
+  },
+  "homepage": "https://github.com/alphasquare404/NuvioWeb",
+  "nuvioFork": {
+    "upstreamVersion": "0.3.35",
+    "upstreamRepository": "https://github.com/NuvioMedia/NuvioWeb",
+    "maintainer": "alphasquare",
+    "defaultBranch": "main"
+  },
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "prepare": "husky || true",
+    "test": "node --test \"**/*.test.mjs\"",
+    "build:on-release": "node ./scripts/release-build-poller.mjs",
+    "lint": "npm run lint:home:incremental",
+    "lint:home:incremental": "eslint \"js/ui/screens/home/**/*.js\" \"eslint.config.mjs\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "serve": "node ./scripts/serve.mjs"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.4",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.1",
-    "vite-plugin-pwa": "^1.2.0"
+    "@csstools/postcss-global-data": "^4.0.0",
+    "@eslint/js": "^9.39.4",
+    "autoprefixer": "^10.4.27",
+    "core-js": "3.49.0",
+    "core-js-compat": "3.49.0",
+    "cssnano": "^7.1.4",
+    "esbuild": "^0.27.3",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "husky": "^9.1.7",
+    "postcss": "^8.5.9",
+    "prettier": "^3.8.4"
+  },
+  "overrides": {
+    "flatted": "3.4.2"
+  },
+  "dependencies": {
+    "dashjs": "4.7.4",
+    "hls.js": "1.5.20",
+    "jszip": "^3.10.1",
+    "libbitsub": "^1.10.1",
+    "web-push": "^3.6.7"
   }
 }

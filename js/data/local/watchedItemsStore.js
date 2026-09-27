@@ -1,0 +1,150 @@
+import { LocalStore } from "../../core/storage/localStore.js";
+
+const WATCHED_ITEMS_KEY = "watchedItems";
+const changeListeners = new Set();
+
+function notifyChange(profileId, reason, meta = {}) {
+  const payload = {
+    profileId: String(profileId || "1"),
+    reason: String(reason || "update"),
+    authoritative: Boolean(meta.authoritative),
+    // Carried so a listener can act on this one entry without re-reading the
+    // whole store -- Home drops the finished card straight away with it.
+    ...(meta.item ? { item: meta.item } : {})
+  };
+  changeListeners.forEach((listener) => {
+    try {
+      listener(payload);
+    } catch (error) {
+      console.warn("Watched items store change listener failed", error);
+    }
+  });
+}
+
+function normalizeEpisodeNumber(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeItem(item = {}, profileId) {
+  return {
+    profileId: String(profileId || 1),
+    contentId: String(item.contentId || ""),
+    contentType: String(item.contentType || "movie"),
+    title: String(item.title || ""),
+    season: normalizeEpisodeNumber(item.season),
+    episode: normalizeEpisodeNumber(item.episode),
+    // Which source owned Continue Watching when this was recorded. Rebuilding
+    // the row from a fixed field list dropped it, which left the writer
+    // stamping a value nothing ever saw and the cloud push unable to tell one
+    // source's completions from another's. Absent on rows that predate it, and
+    // on rows pulled from a cloud that has no column for it.
+    ...(String(item.source || "").trim() ? { source: String(item.source).trim() } : {}),
+    watchedAt: Number(item.watchedAt || Date.now())
+  };
+}
+
+function watchedItemKey(item = {}) {
+  const contentId = String(item.contentId || "").trim();
+  const season = item.season == null ? "" : String(Number(item.season));
+  const episode = item.episode == null ? "" : String(Number(item.episode));
+  return `${contentId}::${season}::${episode}`;
+}
+
+function dedupeAndSort(items = []) {
+  const byKey = new Map();
+  (items || []).forEach((raw) => {
+    const normalized = normalizeItem(raw, raw?.profileId);
+    if (!normalized.contentId) {
+      return;
+    }
+    const key = `${String(normalized.profileId || "1")}::${watchedItemKey(normalized)}`;
+    const existing = byKey.get(key);
+    if (!existing || Number(normalized.watchedAt || 0) >= Number(existing.watchedAt || 0)) {
+      byKey.set(key, normalized);
+    }
+  });
+  return Array.from(byKey.values()).sort(
+    (left, right) => Number(right.watchedAt || 0) - Number(left.watchedAt || 0)
+  );
+}
+
+export const WatchedItemsStore = {
+  subscribe(listener) {
+    if (typeof listener !== "function") {
+      return () => {};
+    }
+    changeListeners.add(listener);
+    return () => changeListeners.delete(listener);
+  },
+
+  listAll() {
+    const raw = LocalStore.get(WATCHED_ITEMS_KEY, []);
+    return dedupeAndSort(Array.isArray(raw) ? raw : []);
+  },
+
+  listForProfile(profileId) {
+    const pid = String(profileId || 1);
+    return this.listAll().filter((item) => String(item.profileId || "1") === pid);
+  },
+
+  upsert(item, profileId, { authoritative = false } = {}) {
+    const pid = String(profileId || 1);
+    const normalized = normalizeItem(item, pid);
+    if (!normalized.contentId) {
+      return;
+    }
+    const key = watchedItemKey(normalized);
+    const next = dedupeAndSort([
+      normalized,
+      ...this.listAll().filter(
+        (entry) => !(String(entry.profileId || "1") === pid && watchedItemKey(entry) === key)
+      )
+    ]).slice(0, 5000);
+    LocalStore.set(WATCHED_ITEMS_KEY, next);
+    notifyChange(pid, "upsert", { authoritative, item: normalized });
+  },
+
+  remove(contentId, profileId, options = null) {
+    const pid = String(profileId || 1);
+    const targetContentId = String(contentId || "");
+    const targetSeason = normalizeEpisodeNumber(options?.season);
+    const targetEpisode = normalizeEpisodeNumber(options?.episode);
+    const rootOnly = options?.rootOnly === true;
+    const hasScopedEpisode = targetSeason != null || targetEpisode != null;
+    const next = this.listAll().filter((entry) => {
+      if (String(entry.profileId || "1") !== pid || entry.contentId !== targetContentId) {
+        return true;
+      }
+      if (rootOnly) {
+        return !(entry.season == null && entry.episode == null);
+      }
+      if (!hasScopedEpisode) {
+        return false;
+      }
+      return !(entry.season === targetSeason && entry.episode === targetEpisode);
+    });
+    LocalStore.set(WATCHED_ITEMS_KEY, next);
+    // Un-watching is a deliberate change, never one of playback's periodic
+    // writes, so Continue Watching is told the same way a completion is.
+    notifyChange(pid, "remove", { authoritative: true });
+  },
+
+  replaceForProfile(profileId, items = []) {
+    const pid = String(profileId || 1);
+    const keepOtherProfiles = this.listAll().filter(
+      (entry) => String(entry.profileId || "1") !== pid
+    );
+    const normalized = (Array.isArray(items) ? items : [])
+      .map((item) => normalizeItem(item, pid))
+      .filter((item) => Boolean(item.contentId));
+    LocalStore.set(
+      WATCHED_ITEMS_KEY,
+      dedupeAndSort([...normalized, ...keepOtherProfiles]).slice(0, 5000)
+    );
+    notifyChange(pid, "replaceForProfile");
+  }
+};
