@@ -153,7 +153,11 @@ export async function activatePosterOption(state, action, _options = {}) {
       contentType: item.type || "movie",
       title: item.title || item.name || item.id || "Untitled",
       poster: item.poster || null,
-      background: item.background || null
+      background: item.background || null,
+      cast: item.cast || item.castMembers || null,
+      genres: item.genres || null,
+      releaseInfo: item.releaseInfo || null,
+      description: item.description || null
     });
     return { type: "updated", state: { ...state, isSaved: Boolean(isSaved) } };
   }

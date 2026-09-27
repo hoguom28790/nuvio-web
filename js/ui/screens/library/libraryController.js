@@ -80,6 +80,7 @@ function makeInitialState() {
     availableTypeTabs: [{ key: ALL_KEY, label: "All" }],
     availableGenres: [],
     availableYears: [],
+    availableCast: [],
     availableSortOptions: LIBRARY_SORT_OPTIONS.filter(
       (option) => option.key !== LibrarySortOptionKey.DEFAULT
     ),
@@ -87,6 +88,7 @@ function makeInitialState() {
     selectedTypeKey: ALL_KEY,
     selectedGenre: null,
     selectedYear: null,
+    selectedCast: null,
     selectedSortKey: LibrarySortOptionKey.ADDED_DESC,
     expandedPicker: null,
     pickerFocusIndex: 0,
@@ -262,15 +264,36 @@ function titleSortKey(value) {
     .toLowerCase();
 }
 
+function extractCastNames(item = {}) {
+  const rawList = Array.isArray(item.cast)
+    ? item.cast
+    : Array.isArray(item.castMembers)
+      ? item.castMembers
+      : Array.isArray(item.credits?.cast)
+        ? item.credits.cast
+        : [];
+  const names = [];
+  rawList.forEach((entry) => {
+    const name = typeof entry === "string" ? entry : (entry?.name || "");
+    const trimmed = String(name || "").trim();
+    if (trimmed && !names.includes(trimmed)) {
+      names.push(trimmed);
+    }
+  });
+  return names;
+}
+
 function buildFilterOptions(items = [], field) {
   const counts = new Map();
   items.forEach((item) => {
-    const values =
-      field === "genre"
-        ? Array.isArray(item.genres)
-          ? item.genres
-          : []
-        : [extractYear(item)].filter(Boolean);
+    let values = [];
+    if (field === "genre") {
+      values = Array.isArray(item.genres) ? item.genres : [];
+    } else if (field === "year") {
+      values = [extractYear(item)].filter(Boolean);
+    } else if (field === "cast") {
+      values = extractCastNames(item);
+    }
     values.forEach((value) => {
       const key = String(value || "").trim();
       if (key) {
@@ -300,6 +323,15 @@ function itemMatchesYear(item, year) {
   return !year || extractYear(item) === year;
 }
 
+function itemMatchesCast(item, actor) {
+  if (!actor) {
+    return true;
+  }
+  const target = String(actor).toLowerCase().trim();
+  const names = extractCastNames(item);
+  return names.some((name) => name.toLowerCase() === target);
+}
+
 function buildFacets(allItems, state) {
   const listFiltered =
     state.sourceMode !== LibrarySourceMode.LOCAL && state.selectedListKey
@@ -318,18 +350,30 @@ function buildFacets(allItems, state) {
   });
   const itemsForTypeCounts = listFiltered.filter(
     (item) =>
-      itemMatchesGenre(item, state.selectedGenre) && itemMatchesYear(item, state.selectedYear)
+      itemMatchesGenre(item, state.selectedGenre) &&
+      itemMatchesYear(item, state.selectedYear) &&
+      itemMatchesCast(item, state.selectedCast)
   );
-  const itemsForGenreCounts = state.selectedYear
-    ? typeFiltered.filter((item) => itemMatchesYear(item, state.selectedYear))
-    : typeFiltered;
-  const itemsForYearCounts = state.selectedGenre
-    ? typeFiltered.filter((item) => itemMatchesGenre(item, state.selectedGenre))
-    : typeFiltered;
+  const itemsForGenreCounts = typeFiltered.filter(
+    (item) =>
+      itemMatchesYear(item, state.selectedYear) &&
+      itemMatchesCast(item, state.selectedCast)
+  );
+  const itemsForYearCounts = typeFiltered.filter(
+    (item) =>
+      itemMatchesGenre(item, state.selectedGenre) &&
+      itemMatchesCast(item, state.selectedCast)
+  );
+  const itemsForCastCounts = typeFiltered.filter(
+    (item) =>
+      itemMatchesGenre(item, state.selectedGenre) &&
+      itemMatchesYear(item, state.selectedYear)
+  );
   return {
     availableTypeTabs: normalizeTypeTabs(itemsForTypeCounts),
     availableGenres: buildFilterOptions(itemsForGenreCounts, "genre"),
-    availableYears: buildFilterOptions(itemsForYearCounts, "year")
+    availableYears: buildFilterOptions(itemsForYearCounts, "year"),
+    availableCast: buildFilterOptions(itemsForCastCounts, "cast")
   };
 }
 
@@ -358,6 +402,10 @@ function sortForState(items, state) {
   const yearFiltered = state.selectedYear
     ? genreFiltered.filter((item) => itemMatchesYear(item, state.selectedYear))
     : genreFiltered;
+
+  const castFiltered = state.selectedCast
+    ? yearFiltered.filter((item) => itemMatchesCast(item, state.selectedCast))
+    : yearFiltered;
 
   const listMetaValue = (item, field) => {
     if (!state.selectedListKey) {
@@ -393,7 +441,7 @@ function sortForState(items, state) {
     return String(left.id).localeCompare(String(right.id), undefined, { sensitivity: "base" });
   };
 
-  const sorted = [...yearFiltered];
+  const sorted = [...castFiltered];
   sorted.sort((left, right) => {
     switch (state.selectedSortKey) {
       case LibrarySortOptionKey.DEFAULT: {
@@ -499,6 +547,7 @@ export class LibraryController {
       selectedTypeKey: state.selectedTypeKey,
       selectedGenre: state.selectedGenre,
       selectedYear: state.selectedYear,
+      selectedCast: state.selectedCast,
       selectedSortKey: state.selectedSortKey,
       selectedCloudProviderId: state.selectedCloudProviderId,
       selectedCloudType: state.selectedCloudType,
@@ -525,6 +574,7 @@ export class LibraryController {
       selectedTypeKey: stringOrNull(snapshot.selectedTypeKey) || ALL_KEY,
       selectedGenre: stringOrNull(snapshot.selectedGenre),
       selectedYear: stringOrNull(snapshot.selectedYear),
+      selectedCast: stringOrNull(snapshot.selectedCast),
       selectedSortKey: stringOrNull(snapshot.selectedSortKey) || this.state.selectedSortKey,
       selectedCloudProviderId: stringOrNull(snapshot.selectedCloudProviderId),
       selectedCloudType: stringOrNull(snapshot.selectedCloudType),
@@ -533,7 +583,8 @@ export class LibraryController {
     this.pendingRouteState = pendingRouteState;
     this.pendingFacetRouteState = {
       selectedGenre: pendingRouteState.selectedGenre,
-      selectedYear: pendingRouteState.selectedYear
+      selectedYear: pendingRouteState.selectedYear,
+      selectedCast: pendingRouteState.selectedCast
     };
     this.state = {
       ...this.state,
@@ -600,6 +651,7 @@ export class LibraryController {
       availableTypeTabs: [...this.state.availableTypeTabs],
       availableGenres: [...this.state.availableGenres],
       availableYears: [...this.state.availableYears],
+      availableCast: [...(this.state.availableCast || [])],
       availableSortOptions: [...this.state.availableSortOptions],
       allItems: [...this.state.allItems],
       visibleItems: [...this.state.visibleItems],
@@ -632,6 +684,11 @@ export class LibraryController {
       facets.availableYears.some((item) => item.key === this.state.selectedYear)
         ? this.state.selectedYear
         : null;
+    const selectedCast =
+      this.state.selectedCast &&
+      facets.availableCast.some((item) => item.key === this.state.selectedCast)
+        ? this.state.selectedCast
+        : null;
     this.state = {
       ...this.state,
       ...facets,
@@ -641,7 +698,8 @@ export class LibraryController {
         ? this.state.selectedTypeKey
         : ALL_KEY,
       selectedGenre,
-      selectedYear
+      selectedYear,
+      selectedCast
     };
     this.state.visibleItems = sortForState(this.state.allItems, this.state);
     this.state = withVisibleCloudItems(this.state);
@@ -681,7 +739,8 @@ export class LibraryController {
       ...this.state,
       allItems: items,
       selectedGenre: null,
-      selectedYear: null
+      selectedYear: null,
+      selectedCast: null
     });
     const patch = {
       selectedGenre:
@@ -693,6 +752,11 @@ export class LibraryController {
         pending.selectedYear &&
         validationFacets.availableYears.some((item) => item.key === pending.selectedYear)
           ? pending.selectedYear
+          : null,
+      selectedCast:
+        pending.selectedCast &&
+        validationFacets.availableCast.some((item) => item.key === pending.selectedCast)
+          ? pending.selectedCast
           : null
     };
     this.pendingFacetRouteState = null;
@@ -728,7 +792,9 @@ export class LibraryController {
     // that metadata before publishing the first content state so the restored
     // filters are never painted as defaults and then applied a second time.
     const waitForPendingFacetMetadata = Boolean(
-      this.pendingFacetRouteState?.selectedGenre || this.pendingFacetRouteState?.selectedYear
+      this.pendingFacetRouteState?.selectedGenre ||
+      this.pendingFacetRouteState?.selectedYear ||
+      this.pendingFacetRouteState?.selectedCast
     );
     if (waitForPendingFacetMetadata) {
       allItems = await libraryRepository.hydrateItems(allItems, {
@@ -771,6 +837,7 @@ export class LibraryController {
           selectedTypeKey: pendingRouteState.selectedTypeKey,
           selectedGenre: pendingRouteState.selectedGenre,
           selectedYear: pendingRouteState.selectedYear,
+          selectedCast: pendingRouteState.selectedCast,
           selectedSortKey: pendingRouteState.selectedSortKey
         }
       : this.state;
@@ -780,7 +847,8 @@ export class LibraryController {
       selectedListKey: nextSelectedListKey,
       selectedTypeKey: ALL_KEY,
       selectedGenre: null,
-      selectedYear: null
+      selectedYear: null,
+      selectedCast: null
     });
     const selectedTypeKey = validationFacets.availableTypeTabs.some(
       (item) => item.key === restoredSelection.selectedTypeKey
@@ -797,6 +865,11 @@ export class LibraryController {
       validationFacets.availableYears.some((item) => item.key === restoredSelection.selectedYear)
         ? restoredSelection.selectedYear
         : null;
+    const selectedCast =
+      restoredSelection.selectedCast &&
+      validationFacets.availableCast.some((item) => item.key === restoredSelection.selectedCast)
+        ? restoredSelection.selectedCast
+        : null;
     const selectedSortKey = availableSortOptions.some(
       (item) => item.key === restoredSelection.selectedSortKey
     )
@@ -810,7 +883,8 @@ export class LibraryController {
       selectedListKey: nextSelectedListKey,
       selectedTypeKey,
       selectedGenre,
-      selectedYear
+      selectedYear,
+      selectedCast
     });
     const manageSelectedListKey =
       this.state.manageSelectedListKey &&
@@ -828,11 +902,13 @@ export class LibraryController {
       availableTypeTabs: facets.availableTypeTabs,
       availableGenres: facets.availableGenres,
       availableYears: facets.availableYears,
+      availableCast: facets.availableCast,
       availableSortOptions,
       selectedListKey: nextSelectedListKey,
       selectedTypeKey,
       selectedGenre,
       selectedYear,
+      selectedCast,
       selectedSortKey,
       manageSelectedListKey,
       isNuvioAccount: sourceMode === LibrarySourceMode.LOCAL && AuthManager.isAuthenticated,
@@ -938,6 +1014,10 @@ export class LibraryController {
     return this.state.selectedYear || t("library_type_all", {}, "All");
   }
 
+  getSelectedCastLabel() {
+    return this.state.selectedCast || t("library_type_all", {}, "All");
+  }
+
   getEmptyStateTitle() {
     const selectedTypeLabel = typeLabelForEmptyState(this.state.selectedTypeKey);
     if (this.state.sourceMode === LibrarySourceMode.TRAKT && !this.state.isTraktAuthenticated) {
@@ -1032,6 +1112,15 @@ export class LibraryController {
         }))
       ];
     }
+    if (picker === "cast") {
+      return [
+        { value: ALL_KEY, label: t("library_type_all", {}, "All") },
+        ...this.state.availableCast.map((item) => ({
+          value: item.key,
+          label: `${item.label} (${item.count})`
+        }))
+      ];
+    }
     return [];
   }
 
@@ -1053,7 +1142,9 @@ export class LibraryController {
               ? this.state.selectedGenre || ALL_KEY
               : picker === "year"
                 ? this.state.selectedYear || ALL_KEY
-                : this.state.selectedSortKey;
+                : picker === "cast"
+                  ? this.state.selectedCast || ALL_KEY
+                  : this.state.selectedSortKey;
       const optionIndex = Math.max(
         0,
         options.findIndex((item) => item.value === currentValue)
@@ -1134,6 +1225,11 @@ export class LibraryController {
     }
     if (picker === "year") {
       this.selectYear(option.value === ALL_KEY ? null : option.value);
+      return;
+    }
+    if (picker === "cast") {
+      this.selectCast(option.value === ALL_KEY ? null : option.value);
+      return;
     }
   }
 
@@ -1285,6 +1381,14 @@ export class LibraryController {
     });
   }
 
+  selectCast(key) {
+    this.setState({
+      selectedCast: key || null,
+      expandedPicker: null,
+      pickerFocusIndex: 0
+    });
+  }
+
   selectPresentationMode(mode) {
     if (!Platform.isBrowser()) return;
     const presentationMode =
@@ -1314,7 +1418,8 @@ export class LibraryController {
     if (
       this.state.selectedTypeKey === ALL_KEY &&
       !this.state.selectedGenre &&
-      !this.state.selectedYear
+      !this.state.selectedYear &&
+      !this.state.selectedCast
     ) {
       return false;
     }
@@ -1322,6 +1427,7 @@ export class LibraryController {
       selectedTypeKey: ALL_KEY,
       selectedGenre: null,
       selectedYear: null,
+      selectedCast: null,
       expandedPicker: null,
       pickerFocusIndex: 0
     });

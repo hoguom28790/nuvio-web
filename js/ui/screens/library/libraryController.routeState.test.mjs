@@ -51,6 +51,7 @@ test("LibraryController captures and hydrates serializable route-level selection
       selectedTypeKey: "series",
       selectedGenre: "drama",
       selectedYear: "2024",
+      selectedCast: "Actor A",
       selectedSortKey: "title_asc",
       selectedCloudProviderId: "provider-a",
       selectedCloudType: "video",
@@ -65,6 +66,7 @@ test("LibraryController captures and hydrates serializable route-level selection
       selectedTypeKey: "series",
       selectedGenre: "drama",
       selectedYear: "2024",
+      selectedCast: "Actor A",
       selectedSortKey: "title_asc",
       selectedCloudProviderId: "provider-a",
       selectedCloudType: "video",
@@ -125,6 +127,7 @@ test("LibraryController applies a restored logical state only after its first lo
           selectedTypeKey: "movie",
           selectedGenre: "Drama",
           selectedYear: "2024",
+          selectedCast: null,
           selectedSortKey: "title_asc"
         });
         await controller.init();
@@ -136,6 +139,7 @@ test("LibraryController applies a restored logical state only after its first lo
           selectedTypeKey: "movie",
           selectedGenre: "Drama",
           selectedYear: "2024",
+          selectedCast: null,
           selectedSortKey: "title_asc",
           selectedCloudProviderId: null,
           selectedCloudType: null,
@@ -163,6 +167,7 @@ test("LibraryController falls back safely when restored loaded-state selections 
           selectedTypeKey: "missing-type",
           selectedGenre: "Missing",
           selectedYear: "1999",
+          selectedCast: "Missing Cast",
           selectedSortKey: "missing-sort"
         });
         await controller.init();
@@ -171,6 +176,7 @@ test("LibraryController falls back safely when restored loaded-state selections 
         assert.equal(state.selectedTypeKey, "__all__");
         assert.equal(state.selectedGenre, null);
         assert.equal(state.selectedYear, null);
+        assert.equal(state.selectedCast, null);
         assert.equal(state.selectedSortKey, "default");
       } finally {
         controller.dispose();
@@ -218,6 +224,7 @@ test("LibraryController validates restored genre and year after metadata hydrati
         assert.equal(state.selectedTypeKey, "movie");
         assert.equal(state.selectedGenre, "Action");
         assert.equal(state.selectedYear, "2024");
+        assert.equal(state.selectedCast, null);
         assert.equal(state.selectedSortKey, "title_asc");
       } finally {
         controller.dispose();
@@ -234,6 +241,7 @@ test("LibraryController clears active facets without changing ordinary filter st
       selectedTypeKey: "movie",
       selectedGenre: "Thriller",
       selectedYear: "2024",
+      selectedCast: "Actor X",
       expandedPicker: "genre",
       pickerFocusIndex: 3
     };
@@ -242,6 +250,7 @@ test("LibraryController clears active facets without changing ordinary filter st
     assert.equal(controller.state.selectedTypeKey, "__all__");
     assert.equal(controller.state.selectedGenre, null);
     assert.equal(controller.state.selectedYear, null);
+    assert.equal(controller.state.selectedCast, null);
     assert.equal(controller.state.expandedPicker, null);
     assert.equal(controller.state.pickerFocusIndex, 0);
   } finally {

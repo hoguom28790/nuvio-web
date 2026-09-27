@@ -173,9 +173,11 @@ function filterStructureSignature(state = {}) {
     state.presentationMode || LIBRARY_PRESENTATION_MODE.FLAT,
     Array.isArray(state.availableGenres) && state.availableGenres.length ? "genre" : "no-genre",
     Array.isArray(state.availableYears) && state.availableYears.length ? "year" : "no-year",
+    Array.isArray(state.availableCast) && state.availableCast.length ? "cast" : "no-cast",
     state.selectedTypeKey !== "__all__" ? "type-filtered" : "type-all",
     state.selectedGenre ? "genre-filtered" : "genre-all",
-    state.selectedYear ? "year-filtered" : "year-all"
+    state.selectedYear ? "year-filtered" : "year-all",
+    state.selectedCast ? "cast-filtered" : "cast-all"
   ].join("|");
 }
 
@@ -698,7 +700,9 @@ export const LibraryScreen = {
             ? state.selectedGenre || "__all__"
             : picker === "year"
               ? state.selectedYear || "__all__"
-              : state.selectedSortKey;
+              : picker === "cast"
+                ? state.selectedCast || "__all__"
+                : state.selectedSortKey;
     const selectedIndex = Math.max(
       0,
       options.findIndex((option) => option.value === currentValue)
@@ -805,6 +809,15 @@ export const LibraryScreen = {
             this.controller.getPickerOptions("year"),
             "library-picker-flex"
           )
+        : "",
+      state.availableCast?.length
+        ? this.renderPicker(
+            "cast",
+            t("library_filter_cast", {}, "Actor"),
+            this.controller.getSelectedCastLabel(),
+            this.controller.getPickerOptions("cast"),
+            "library-picker-flex"
+          )
         : ""
     ]
       .filter(Boolean)
@@ -812,7 +825,10 @@ export const LibraryScreen = {
 
     if (Platform.isBrowser()) {
       const hasActiveFilters =
-        state.selectedTypeKey !== "__all__" || Boolean(state.selectedGenre) || Boolean(state.selectedYear);
+        state.selectedTypeKey !== "__all__" ||
+        Boolean(state.selectedGenre) ||
+        Boolean(state.selectedYear) ||
+        Boolean(state.selectedCast);
       return `
         <section class="library-picker-groups library-saved-picker-groups" id="libraryPickerGroupsMount">
           ${this.renderPresentationToggle(state)}
@@ -1969,7 +1985,7 @@ export const LibraryScreen = {
   getPickerRowFocusables() {
     return Array.from(
       this.container?.querySelectorAll(
-        ".library-picker-row .library-picker-anchor.focusable, .library-picker-row .library-clear-filters.focusable"
+        ".library-picker-row .library-picker-anchor.focusable, .library-picker-row .library-clear-filters.focusable, .library-picker-row .library-random-button.focusable"
       ) || []
     ).filter((node) => !node.disabled);
   },
@@ -1977,7 +1993,9 @@ export const LibraryScreen = {
   resolveRelativePickerRowNode(current, direction) {
     if (
       !current ||
-      !current.matches?.(".library-picker-anchor.focusable, .library-clear-filters.focusable") ||
+      !current.matches?.(
+        ".library-picker-anchor.focusable, .library-clear-filters.focusable, .library-random-button.focusable"
+      ) ||
       !current.closest?.(".library-picker-row")
     ) {
       return null;
@@ -2152,7 +2170,9 @@ export const LibraryScreen = {
   handleFilterRowHorizontalNavigation(event, current) {
     if (
       !current ||
-      !current.matches?.(".library-picker-anchor.focusable, .library-clear-filters.focusable") ||
+      !current.matches?.(
+        ".library-picker-anchor.focusable, .library-clear-filters.focusable, .library-random-button.focusable"
+      ) ||
       !current.closest?.(".library-picker-row")
     ) {
       return false;
@@ -2184,7 +2204,9 @@ export const LibraryScreen = {
   handleFilterRowVerticalNavigation(event, current) {
     if (
       !current ||
-      !current.matches?.(".library-picker-anchor.focusable, .library-clear-filters.focusable") ||
+      !current.matches?.(
+        ".library-picker-anchor.focusable, .library-clear-filters.focusable, .library-random-button.focusable"
+      ) ||
       !current.closest?.(".library-picker-row")
     ) {
       return false;

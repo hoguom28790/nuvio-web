@@ -215,6 +215,13 @@ function normalizeSavedItem(item = {}) {
     tmdbId: item.tmdbId == null ? null : Number(item.tmdbId),
     traktId: item.traktId == null ? null : Number(item.traktId),
     year: item.year == null ? null : Number(item.year),
+    cast: Array.isArray(item.cast)
+      ? item.cast
+      : Array.isArray(item.castMembers)
+        ? item.castMembers
+        : Array.isArray(item.credits?.cast)
+          ? item.credits.cast
+          : [],
     updatedAt: Number(item.updatedAt || item.listedAt || Date.now())
   };
 }
@@ -291,6 +298,12 @@ function mergeItemIntoMap(target, listKey, baseItem, listedAt, traktRank) {
     tmdbId: baseItem.tmdbId ?? existing?.tmdbId ?? null,
     traktId: baseItem.traktId ?? existing?.traktId ?? null,
     year: baseItem.year ?? existing?.year ?? null,
+    cast:
+      Array.isArray(baseItem.cast) && baseItem.cast.length
+        ? baseItem.cast
+        : Array.isArray(existing?.cast) && existing.cast.length
+          ? existing.cast
+          : [],
     listKeys: nextListKeys,
     listedAt: Number(listedAt || existing?.listedAt || Date.now()),
     traktRank: traktRank == null ? (existing?.traktRank ?? null) : Number(traktRank),
@@ -314,7 +327,13 @@ async function hydrateEntries(entries, { onBatch = null, shouldContinue = null }
     let didChange = false;
     await Promise.all(
       batch.map(async (entry) => {
-        if (entry.poster && entry.name && entry.description) {
+        if (
+          entry.poster &&
+          entry.name &&
+          entry.description &&
+          Array.isArray(entry.cast) &&
+          entry.cast.length
+        ) {
           return;
         }
         const cacheKey = `${entry.type}:${entry.id}`;
@@ -342,7 +361,8 @@ async function hydrateEntries(entries, { onBatch = null, shouldContinue = null }
           entry.background,
           entry.description,
           entry.releaseInfo,
-          entry.genres
+          entry.genres,
+          entry.cast
         ]);
         entry.name = entry.name || meta.name || entry.id;
         entry.poster = entry.poster || meta.poster || meta.background || null;
@@ -354,6 +374,16 @@ async function hydrateEntries(entries, { onBatch = null, shouldContinue = null }
           : Array.isArray(meta.genres)
             ? meta.genres
             : [];
+        entry.cast =
+          Array.isArray(entry.cast) && entry.cast.length
+            ? entry.cast
+            : Array.isArray(meta.cast)
+              ? meta.cast
+              : Array.isArray(meta.castMembers)
+                ? meta.castMembers
+                : Array.isArray(meta.credits?.cast)
+                  ? meta.credits.cast
+                  : [];
         didChange =
           didChange ||
           before !==
@@ -363,7 +393,8 @@ async function hydrateEntries(entries, { onBatch = null, shouldContinue = null }
               entry.background,
               entry.description,
               entry.releaseInfo,
-              entry.genres
+              entry.genres,
+              entry.cast
             ]);
       })
     );

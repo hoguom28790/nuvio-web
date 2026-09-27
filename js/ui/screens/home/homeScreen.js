@@ -5476,7 +5476,11 @@ export const HomeScreen = {
       contentType: item.type || "movie",
       title: item.name || item.id || "Untitled",
       poster: item.poster || null,
-      background: item.background || item.backdrop || null
+      background: item.background || item.backdrop || null,
+      cast: item.cast || item.castMembers || null,
+      genres: item.genres || null,
+      releaseInfo: item.releaseInfo || item.year ? String(item.releaseInfo || item.year) : null,
+      description: item.description || null
     });
     if (this.posterHoldMenu) {
       this.posterHoldMenu = { ...this.posterHoldMenu, isSaved: Boolean(saved) };

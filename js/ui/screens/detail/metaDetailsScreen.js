@@ -6726,7 +6726,11 @@ export const MetaDetailsScreen = {
       contentType: this.params?.itemType || "movie",
       title: this.meta?.name || this.params?.fallbackTitle || this.params?.itemId || "Untitled",
       poster: this.meta?.poster || null,
-      background: this.meta?.background || null
+      background: this.meta?.background || null,
+      cast: this.meta?.cast || this.meta?.castMembers || null,
+      genres: this.meta?.genres || null,
+      releaseInfo: this.meta?.releaseInfo || null,
+      description: this.meta?.description || null
     });
     if (Platform.isBrowser()) {
       bindDesktopNavigationEvents(this.container);

@@ -641,6 +641,9 @@
     <string name="library_filter_list">Danh sách</string>
     <string name="library_filter_type">Loại</string>
     <string name="library_filter_sort">Sắp xếp</string>
+    <string name="library_filter_genre">Thể loại</string>
+    <string name="library_filter_year">Năm</string>
+    <string name="library_filter_cast">Diễn viên</string>
     <string name="library_manage_lists">Quản lý danh sách</string>
     <string name="library_manage_trakt_lists">Quản lý danh sách Trakt</string>
     <string name="library_no_lists">Chưa có danh sách cá nhân.</string>
