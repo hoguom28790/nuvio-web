@@ -8036,6 +8036,19 @@ export const SettingsScreen = {
       });
     });
     this.actionMap.set("tracking:desktop:trakt:disconnect", () => this.openTraktDisconnectDialog());
+    this.actionMap.set("tracking:desktop:trakt:manual_connect", async () => {
+      const input = document.getElementById("traktAccessTokenInput");
+      const token = String(input?.value || "").trim();
+      if (!token) {
+        this.desktopTraktErrorMessage = "Please enter a valid Trakt Access Token.";
+        await this.render();
+        return;
+      }
+      TraktAuthStore.saveToken({ access_token: token, refresh_token: "manual" });
+      this.desktopTraktErrorMessage = null;
+      this.desktopTraktStatusMessage = "Trakt connected via manual token!";
+      await this.render();
+    });
     this.actionMap.set("tracking:desktop:library", () => {
       this.openOptionDialog({
         title: "Library source",
@@ -8140,7 +8153,12 @@ export const SettingsScreen = {
              <p class="settings-tracking-provider-status">${escapeHtml(this.desktopTraktStatusMessage || "Waiting for Trakt approval...")}</p>
            </div>`
         : traktBridgeStatus === "unavailable" || !TraktAuthService.hasRequiredCredentials()
-          ? `<p class="settings-row-subtitle">Trakt browser authentication is unavailable on this server.</p>`
+          ? `<p class="settings-row-subtitle">Trakt browser authentication is unavailable on this server.</p>
+             <p class="settings-row-subtitle" style="margin-top: 8px;">You can connect manually by providing a Trakt Access Token.</p>
+             <div style="display:flex; gap: 8px; margin-top: 8px;">
+               <input type="text" id="traktAccessTokenInput" class="settings-dialog-input" placeholder="Paste Trakt Access Token here" style="flex:1;">
+               ${inlineButton("tracking:desktop:trakt:manual_connect", "Save Token")}
+             </div>`
           : `<p class="settings-row-subtitle">Connect Trakt to sync lists, watched history, playback progress, and scrobbles.</p>
              ${inlineButton("tracking:desktop:trakt:connect", "Connect Trakt")}`;
     const behaviorBody = `

@@ -79,7 +79,7 @@ export const TraktAuthStore = {
 
   isAuthenticated(profileId = activeProfileId()) {
     const state = readProfileState(profileId);
-    return Boolean(state.accessToken && state.refreshToken);
+    return Boolean(state.accessToken);
   },
 
   saveDeviceFlow(data = {}, profileId = activeProfileId()) {

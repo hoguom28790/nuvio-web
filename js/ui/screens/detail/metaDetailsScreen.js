@@ -1,4 +1,4 @@
-﻿import { Router } from "../../navigation/router.js";
+import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { subtitleReleaseName } from "../../../domain/model/subtitle.js";
 import { setBrowserMediaTitle } from "../../navigation/browserDocumentTitle.js";
@@ -4539,20 +4539,16 @@ export const MetaDetailsScreen = {
       .slice(0, 18)
       .map((person) => {
         const tmdbPersonId = String(person?.tmdbId || "").trim();
-        const browserPersonNavigation =
-          Platform.isBrowser() &&
-          TmdbSettingsStore.get().enabled &&
-          TmdbSettingsStore.get().useCredits !== false &&
-          /^\d+$/.test(tmdbPersonId);
-        const isInteractive = !Platform.isBrowser() || browserPersonNavigation;
         return `
-      <article class="movie-cast-card series-cast-card${isInteractive ? " focusable" : ""}"
-               ${isInteractive ? 'data-action="openCastDetail" role="button"' : ""}
+      <article class="movie-cast-card series-cast-card focusable"
+               data-action="openCastDetail" role="button" tabindex="0"
                data-cast-id="${escapeAttribute(tmdbPersonId)}"
                data-cast-key="${escapeHtml(String(person.tmdbId || `${person.name || ""}:${person.character || ""}`))}"
                data-cast-name="${escapeHtml(person.name || "")}"
                data-cast-role="${escapeHtml(person.character || "")}"
-               data-cast-photo="${escapeHtml(person.photo || "")}">
+               data-cast-photo="${escapeHtml(person.photo || "")}"
+               title="Tìm kiếm phim của ${escapeHtml(person.name || "")}"
+               style="cursor: pointer;">
         <div class="movie-cast-avatar">
           ${
             person.photo
@@ -4560,7 +4556,7 @@ export const MetaDetailsScreen = {
               : ""
           }
         </div>
-        <div class="movie-cast-name">${escapeHtml(person.name || "")}</div>
+        <div class="movie-cast-name" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.4);">${escapeHtml(person.name || "")}</div>
         <div class="movie-cast-role">${escapeHtml(person.character || "")}</div>
       </article>
     `;
@@ -8154,16 +8150,14 @@ export const MetaDetailsScreen = {
     this.boundDesktopCastPersonActionHandler = (event) => {
       const target = event?.target;
       if (!(target instanceof Element)) return;
-      const personNode = target.closest(".series-cast-card[data-action='openCastDetail']");
+      const personNode = target.closest(".series-cast-card, .movie-cast-card, [data-action='openCastDetail']");
       if (!(personNode instanceof HTMLElement) || !this.container.contains(personNode)) return;
-      const personId = String(personNode.dataset.castId || "").trim();
-      if (!/^\d+$/.test(personId)) return;
-      Router.navigate("castDetail", {
-        castId: personId,
-        castName: personNode.dataset.castName || "",
-        castRole: personNode.dataset.castRole || "",
-        castPhoto: personNode.dataset.castPhoto || ""
-      });
+      const personName = String(personNode.dataset.castName || "").trim();
+      if (personName) {
+        Router.navigate("search", {
+          query: personName
+        });
+      }
       event.preventDefault();
     };
     this.container.addEventListener("click", this.boundDesktopCastPersonActionHandler);
@@ -11686,12 +11680,17 @@ export const MetaDetailsScreen = {
     }
 
     if (action === "openCastDetail") {
-      Router.navigate("castDetail", {
-        castId: current.dataset.castId || "",
-        castName: current.dataset.castName || "",
-        castRole: current.dataset.castRole || "",
-        castPhoto: current.dataset.castPhoto || ""
-      });
+      const personName = String(current.dataset.castName || "").trim();
+      if (personName) {
+        Router.navigate("search", { query: personName });
+      } else if (current.dataset.castId) {
+        Router.navigate("castDetail", {
+          castId: current.dataset.castId || "",
+          castName: current.dataset.castName || "",
+          castRole: current.dataset.castRole || "",
+          castPhoto: current.dataset.castPhoto || ""
+        });
+      }
       return;
     }
 

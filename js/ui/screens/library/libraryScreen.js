@@ -827,6 +827,12 @@ export const LibraryScreen = {
                    </button>`
                 : ""
             }
+            <button class="library-action-button library-random-button focusable"
+                    data-action="playRandomMovie"
+                    title="Chọn phim ngẫu nhiên để xem"
+                    style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); font-weight: 700; border-radius: 999px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4); cursor: pointer; padding: 0 18px; min-height: 40px;">
+              <span>🎲</span> Phim ngẫu nhiên
+            </button>
           </div>
         </section>
       `;
@@ -899,7 +905,7 @@ export const LibraryScreen = {
 
   renderViewModeTabs(state) {
     return `
-      <div class="library-view-mode-row" style="display:flex; justify-content: space-between;"><div style="display:flex; gap:16px;">
+      <div class="library-view-mode-row">
         <button class="library-view-mode-button focusable${!this.isDownloadedView() && state.viewMode === LIBRARY_VIEW_MODE.SAVED ? " selected" : ""}"
                 data-action="selectLibraryViewMode" data-view-mode="saved">
           ${escapeHtml(t("library_source_saved", {}, "Saved"))}
@@ -924,7 +930,13 @@ export const LibraryScreen = {
                </button>`
             : ""
         }
-        }</div><button class="library-view-mode-button focusable" style="background:var(--color-primary); color:white; border-radius:4px;" data-action="playRandomMovie">&#127922; Random Movie</button></div>
+        <button class="library-view-mode-button library-random-button focusable"
+                data-action="playRandomMovie"
+                title="Chọn phim ngẫu nhiên để xem"
+                style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); font-weight: 700; border-radius: 999px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4); cursor: pointer; padding: 0 18px;">
+          <span>🎲</span> Phim ngẫu nhiên
+        </button>
+      </div>
     `;
   },
 
@@ -2571,10 +2583,22 @@ export const LibraryScreen = {
     }
     if (action === "playRandomMovie") {
       const state = this.controller.getState();
-      const items = state.visibleItems || [];
+      const items = (Array.isArray(state.visibleItems) && state.visibleItems.length)
+        ? state.visibleItems
+        : (Array.isArray(state.items) && state.items.length)
+          ? state.items
+          : [];
       if (items.length > 0) {
         const randomItem = items[Math.floor(Math.random() * items.length)];
-        Router.navigate("detail", { itemType: randomItem.type || "movie", itemId: randomItem.id, fallbackTitle: randomItem.name || "Untitled" });
+        Router.navigate("detail", {
+          itemId: randomItem.id,
+          itemType: randomItem.type || "movie",
+          fallbackTitle: randomItem.name || randomItem.title || "Untitled",
+          fallbackPoster: randomItem.poster || null,
+          fallbackBackground: randomItem.background || null
+        });
+      } else {
+        alert("Thư viện hiện chưa có phim nào để chọn ngẫu nhiên!");
       }
       return;
     }

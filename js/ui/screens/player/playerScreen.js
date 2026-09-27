@@ -5094,6 +5094,25 @@ export const PlayerScreen = {
       "resize",
       this.boundDesktopPlayerVisualViewportResizeHandler
     );
+    this.boundDesktopPlayerSpeedShortcutHandler = async (event) => {
+      if (
+        event?.altKey &&
+        (event.keyCode === 37 || event.keyCode === 39 || event.code === "ArrowLeft" || event.code === "ArrowRight" || event.key === "ArrowLeft" || event.key === "ArrowRight")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        const currentSpeed = Number(this.getPlaybackSpeed() || 1);
+        const isRight = event.keyCode === 39 || event.code === "ArrowRight" || event.key === "ArrowRight";
+        const delta = isRight ? 0.25 : -0.25;
+        const targetSpeed = Math.max(0.25, Math.min(3.0, Math.round((currentSpeed + delta) * 100) / 100));
+        await this.applyPlaybackSpeed(targetSpeed);
+        this.showBrowserPlayerGestureFeedback(`${targetSpeed.toFixed(2)}x`, "center");
+        this.revealDesktopPlayerControls();
+      }
+    };
+    window.addEventListener("keydown", this.boundDesktopPlayerSpeedShortcutHandler, true);
+
     const video = this.getDesktopPlaybackVideo();
     if (video) {
       this.boundDesktopVolumeChangeHandler = () => this.syncDesktopPlaybackTools();
@@ -5142,6 +5161,10 @@ export const PlayerScreen = {
       "orientationchange",
       this.boundDesktopPlayerOrientationChangeHandler
     );
+    if (this.boundDesktopPlayerSpeedShortcutHandler) {
+      window.removeEventListener("keydown", this.boundDesktopPlayerSpeedShortcutHandler, true);
+      this.boundDesktopPlayerSpeedShortcutHandler = null;
+    }
     this.desktopPlayerVisualViewport?.removeEventListener(
       "resize",
       this.boundDesktopPlayerVisualViewportResizeHandler
@@ -16599,6 +16622,23 @@ export const PlayerScreen = {
 
   async handleBrowserKeyDown(event) {
     const keyCode = Number(event?.keyCode || 0);
+    if (
+      event?.altKey &&
+      (keyCode === 37 || keyCode === 39 || event?.code === "ArrowLeft" || event?.code === "ArrowRight" || event?.key === "ArrowLeft" || event?.key === "ArrowRight")
+    ) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      event?.stopImmediatePropagation?.();
+      const currentSpeed = Number(this.getPlaybackSpeed() || 1);
+      const isRight = keyCode === 39 || event?.code === "ArrowRight" || event?.key === "ArrowRight";
+      const delta = isRight ? 0.25 : -0.25;
+      const targetSpeed = Math.max(0.25, Math.min(3.0, Math.round((currentSpeed + delta) * 100) / 100));
+      await this.applyPlaybackSpeed(targetSpeed);
+      this.showBrowserPlayerGestureFeedback(`${targetSpeed.toFixed(2)}x`, "center");
+      this.revealDesktopPlayerControls();
+      return true;
+    }
+
     const isBackKey = isBackEvent(event);
     const eventTarget = event?.target instanceof Element ? event.target : document.activeElement;
     const activeTarget =
@@ -16744,19 +16784,9 @@ export const PlayerScreen = {
 
     if (shortcutRoute === "seek") {
       event?.preventDefault?.();
-      if (event?.altKey) {
-        const currentSpeed = Number(this.getPlaybackSpeed() || 1);
-        const speedOptions = this.getPlaybackSpeedOptions();
-        let currentIndex = speedOptions.findIndex(s => s === currentSpeed);
-        if (currentIndex === -1) currentIndex = speedOptions.findIndex(s => s === 1);
-        const newIndex = keyCode === 39 ? Math.min(speedOptions.length - 1, currentIndex + 1) : Math.max(0, currentIndex - 1);
-        this.applyPlaybackSpeed(speedOptions[newIndex]);
-        this.revealDesktopPlayerControls();
-      } else {
-        this.revealDesktopPlayerControls();
-        this.beginSeekPreview(keyCode === 39 ? 1 : -1, false);
-        this.commitSeekPreview();
-      }
+      this.revealDesktopPlayerControls();
+      this.beginSeekPreview(keyCode === 39 ? 1 : -1, false);
+      this.commitSeekPreview();
       return true;
     }
 
@@ -16795,6 +16825,22 @@ export const PlayerScreen = {
   },
 
   async onKeyDown(event) {
+    if (
+      event?.altKey &&
+      (event.keyCode === 37 || event.keyCode === 39 || event.code === "ArrowLeft" || event.code === "ArrowRight" || event.key === "ArrowLeft" || event.key === "ArrowRight")
+    ) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      event?.stopImmediatePropagation?.();
+      const currentSpeed = Number(this.getPlaybackSpeed() || 1);
+      const isRight = event.keyCode === 39 || event.code === "ArrowRight" || event.key === "ArrowRight";
+      const delta = isRight ? 0.25 : -0.25;
+      const targetSpeed = Math.max(0.25, Math.min(3.0, Math.round((currentSpeed + delta) * 100) / 100));
+      await this.applyPlaybackSpeed(targetSpeed);
+      this.showBrowserPlayerGestureFeedback(`${targetSpeed.toFixed(2)}x`, "center");
+      this.revealDesktopPlayerControls();
+      return true;
+    }
     if (Environment.isBrowser()) {
       return this.handleBrowserKeyDown(event);
     }
