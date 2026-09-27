@@ -212,7 +212,7 @@ function libraryCardMetadata(item = {}) {
     libraryCardYear(item)
   ]
     .filter(Boolean)
-    .join(" • ");
+    .join(" â€¢ ");
 }
 
 function offlineDetailId(download = {}) {
@@ -271,13 +271,13 @@ function managerEpisodeLabel(download = {}) {
   if (season == null || episode == null) return "";
   const code = `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
   const episodeTitle = download.episodeTitle || download.title;
-  return [code, episodeTitle].filter(Boolean).join(" · ");
+  return [code, episodeTitle].filter(Boolean).join(" Â· ");
 }
 
 function managerSourceLabel(download = {}) {
   return [download.quality || download.resolution || "", download.sourceName || download.addonName || ""]
     .filter(Boolean)
-    .join(" · ");
+    .join(" Â· ");
 }
 
 export const LibraryScreen = {
@@ -899,7 +899,7 @@ export const LibraryScreen = {
 
   renderViewModeTabs(state) {
     return `
-      <div class="library-view-mode-row">
+      <div class="library-view-mode-row" style="display:flex; justify-content: space-between;"><div style="display:flex; gap:16px;">
         <button class="library-view-mode-button focusable${!this.isDownloadedView() && state.viewMode === LIBRARY_VIEW_MODE.SAVED ? " selected" : ""}"
                 data-action="selectLibraryViewMode" data-view-mode="saved">
           ${escapeHtml(t("library_source_saved", {}, "Saved"))}
@@ -924,7 +924,7 @@ export const LibraryScreen = {
                </button>`
             : ""
         }
-      </div>
+        }</div><button class="library-view-mode-button focusable" style="background:var(--color-primary); color:white; border-radius:4px;" data-action="playRandomMovie">&#127922; Random Movie</button></div>
     `;
   },
 
@@ -963,7 +963,7 @@ export const LibraryScreen = {
     if (["paused", "interrupted", "failed"].includes(status)) actions = action("resumeOfflineDownload", status === "failed" ? "refresh" : "play_arrow", status === "failed" ? "Retry" : "Resume") + action("cancelOfflineDownload", "delete", "Delete partial download");
     return `<article class="library-download-manager-card">
       ${download.poster ? `<img class="library-download-manager-poster" src="${escapeHtml(download.poster)}" alt="" />` : `<div class="library-download-manager-poster library-download-manager-poster-placeholder" aria-hidden="true"><span class="material-icons">download</span></div>`}
-      <div class="library-download-manager-copy"><strong>${escapeHtml(title)}</strong>${episode ? `<span>${escapeHtml(episode)}</span>` : ""}${source ? `<span>${escapeHtml(source)}</span>` : ""}${status === "queued" ? `<span>Queued #${queuePosition}</span>` : `<span>${escapeHtml(status)}${total ? ` · ${formatOfflineBytes(current)} / ${formatOfflineBytes(total)} (${progress}%)` : ""}</span>`}${status === "downloading" ? `<div class="library-download-manager-progress" aria-label="${progress}% downloaded"><i style="width:${progress}%"></i></div>` : ""}${download.error ? `<small>${escapeHtml(download.error)}</small>` : ""}</div>
+      <div class="library-download-manager-copy"><strong>${escapeHtml(title)}</strong>${episode ? `<span>${escapeHtml(episode)}</span>` : ""}${source ? `<span>${escapeHtml(source)}</span>` : ""}${status === "queued" ? `<span>Queued #${queuePosition}</span>` : `<span>${escapeHtml(status)}${total ? ` Â· ${formatOfflineBytes(current)} / ${formatOfflineBytes(total)} (${progress}%)` : ""}</span>`}${status === "downloading" ? `<div class="library-download-manager-progress" aria-label="${progress}% downloaded"><i style="width:${progress}%"></i></div>` : ""}${download.error ? `<small>${escapeHtml(download.error)}</small>` : ""}</div>
       <div class="library-download-manager-actions">${actions}</div>
     </article>`;
   },
@@ -1089,7 +1089,7 @@ export const LibraryScreen = {
                 this.formatCloudSize(item.sizeBytes)
               ]
                 .filter(Boolean)
-                .join(" • ");
+                .join(" â€¢ ");
               const resolving = String(state.resolvingCloudFileKey || "").startsWith(
                 item.stableKey
               );
@@ -1104,7 +1104,7 @@ export const LibraryScreen = {
                   </div>
                   <div class="library-cloud-card-status${playableFiles.length ? " playable" : ""}">
                     ${escapeHtml(
-                      resolving ? t("cloud_library_opening", {}, "Opening…") : fileLabel
+                      resolving ? t("cloud_library_opening", {}, "Openingâ€¦") : fileLabel
                     )}
                   </div>
                 </article>
@@ -1456,7 +1456,7 @@ export const LibraryScreen = {
             <button class="library-action-button focusable"
                     data-action="saveListEditor"
                     ${state.pendingOperation ? "disabled" : ""}>
-              ${escapeHtml(state.pendingOperation ? t("action_saving", {}, "Saving…") : t("action_save", {}, "Save"))}
+              ${escapeHtml(state.pendingOperation ? t("action_saving", {}, "Savingâ€¦") : t("action_save", {}, "Save"))}
             </button>
           </div>
         </section>
@@ -1510,7 +1510,7 @@ export const LibraryScreen = {
                     <span>${escapeHtml(file.name)}</span>
                     <small>${escapeHtml(
                       resolving
-                        ? t("cloud_library_opening", {}, "Opening…")
+                        ? t("cloud_library_opening", {}, "Openingâ€¦")
                         : this.formatCloudSize(file.sizeBytes)
                     )}</small>
                   </button>
@@ -2569,6 +2569,15 @@ export const LibraryScreen = {
       this.requestRender();
       return;
     }
+    if (action === "playRandomMovie") {
+      const state = this.controller.getState();
+      const items = state.visibleItems || [];
+      if (items.length > 0) {
+        const randomItem = items[Math.floor(Math.random() * items.length)];
+        Router.navigate("detail", { itemType: randomItem.type || "movie", itemId: randomItem.id, fallbackTitle: randomItem.name || "Untitled" });
+      }
+      return;
+    }
     if (action === "selectLibraryViewMode") {
       this.downloadedView = false;
       this.downloadManagerView = false;
@@ -2958,3 +2967,12 @@ export const LibraryScreen = {
     ScreenUtils.hide(this.container);
   }
 };
+
+
+
+
+
+
+
+
+

@@ -16744,9 +16744,19 @@ export const PlayerScreen = {
 
     if (shortcutRoute === "seek") {
       event?.preventDefault?.();
-      this.revealDesktopPlayerControls();
-      this.beginSeekPreview(keyCode === 39 ? 1 : -1, false);
-      this.commitSeekPreview();
+      if (event?.altKey) {
+        const currentSpeed = Number(this.getPlaybackSpeed() || 1);
+        const speedOptions = this.getPlaybackSpeedOptions();
+        let currentIndex = speedOptions.findIndex(s => s === currentSpeed);
+        if (currentIndex === -1) currentIndex = speedOptions.findIndex(s => s === 1);
+        const newIndex = keyCode === 39 ? Math.min(speedOptions.length - 1, currentIndex + 1) : Math.max(0, currentIndex - 1);
+        this.applyPlaybackSpeed(speedOptions[newIndex]);
+        this.revealDesktopPlayerControls();
+      } else {
+        this.revealDesktopPlayerControls();
+        this.beginSeekPreview(keyCode === 39 ? 1 : -1, false);
+        this.commitSeekPreview();
+      }
       return true;
     }
 
