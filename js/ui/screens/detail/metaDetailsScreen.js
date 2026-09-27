@@ -47,6 +47,7 @@ import {
 import {
   createBrowserOfflineSubtitlePicker,
   createBrowserOfflineSubtitleSnapshot
+} from "../../components/browserOfflineSubtitlePicker.js";
 import { normalizeSubtitleForDisplay } from "../../components/browserSubtitleDisplay.js";
 import {
   enrichCastPhotos,
