@@ -3779,16 +3779,16 @@ export const HomeScreen = {
 
   getInitialCatalogLoadCount() {
     if (this.isPerformanceConstrained()) {
-      return 5;
+      return 3;
     }
-    return HOME_INITIAL_CATALOG_LOAD;
+    return 4;
   },
 
   getDeferredCatalogBatchSize() {
     if (this.isPerformanceConstrained()) {
-      return 4;
+      return 2;
     }
-    return 0;
+    return 3;
   },
 
   getScrollDuration(base) {
@@ -3837,13 +3837,13 @@ export const HomeScreen = {
 
   getBackgroundRenderDelay() {
     if (this.isPerformanceConstrained()) {
-      return HOME_BACKGROUND_RENDER_DELAY_MS;
+      return 1500;
     }
-    return 0;
+    return 1000;
   },
 
   shouldProgressivelyRenderDeferredRows() {
-    return !this.isPerformanceConstrained();
+    return true;
   },
 
   getDirectionalRepeatThrottleMs(direction = null) {
@@ -9707,6 +9707,25 @@ export const HomeScreen = {
     const fetchBatch = async (batchDescriptors = []) => {
       const rowResults = await Promise.all(
         batchDescriptors.map(async (catalog) => {
+          const rowKey = buildModernRowKey(catalog);
+          const homeCatalogKey = buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId);
+          const homeCatalogDisableKey = buildCatalogDisableKey(
+            catalog.addonBaseUrl,
+            catalog.type,
+            catalog.catalogId,
+            catalog.catalogName
+          );
+
+          if (allowLoading && onRow) {
+            onRow({
+              ...catalog,
+              result: { status: "loading" },
+              loadingItems: buildCatalogLoadingItems(rowKey, loadingCount),
+              homeCatalogKey,
+              homeCatalogDisableKey
+            });
+          }
+
           const result = this.filterUnreleasedResult(
             await withTimeout(
               catalogRepository.getCatalog({
@@ -9723,7 +9742,6 @@ export const HomeScreen = {
               { status: "error", message: "timeout" }
             )
           );
-          const rowKey = buildModernRowKey(catalog);
           const row = {
             ...catalog,
             result:
@@ -9732,13 +9750,8 @@ export const HomeScreen = {
               allowLoading && result?.status !== "success"
                 ? buildCatalogLoadingItems(rowKey, loadingCount)
                 : null,
-            homeCatalogKey: buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId),
-            homeCatalogDisableKey: buildCatalogDisableKey(
-              catalog.addonBaseUrl,
-              catalog.type,
-              catalog.catalogId,
-              catalog.catalogName
-            )
+            homeCatalogKey,
+            homeCatalogDisableKey
           };
           if (onRow && (row.result?.status === "success" || allowLoading)) {
             onRow(row);
