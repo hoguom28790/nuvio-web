@@ -456,26 +456,31 @@ export function cleanM3u8Text(content) {
  */
 export function createCleanPlaylistLoader(Hls) {
   const BaseLoader = Hls?.DefaultConfig?.loader;
-  if (!BaseLoader) {
+  if (typeof BaseLoader !== "function") {
     return null;
   }
-  return class CleanPlaylistLoader extends BaseLoader {
-    load(context, config, callbacks) {
-      const originalSuccess = callbacks.onSuccess;
-      callbacks.onSuccess = (response, stats, ctx, networkDetails) => {
-        if (response && typeof response.data === "string" && response.data.includes("#EXTM3U")) {
-          try {
-            response.data = cleanM3u8Text(response.data);
-          } catch (err) {
-            console.warn("[CleanPlaylistLoader] Error cleaning playlist:", err);
+  try {
+    return class CleanPlaylistLoader extends BaseLoader {
+      load(context, config, callbacks) {
+        const originalSuccess = callbacks.onSuccess;
+        callbacks.onSuccess = (response, stats, ctx, networkDetails) => {
+          if (response && typeof response.data === "string" && response.data.includes("#EXTM3U")) {
+            try {
+              response.data = cleanM3u8Text(response.data);
+            } catch (err) {
+              console.warn("[CleanPlaylistLoader] Error cleaning playlist:", err);
+            }
           }
-        }
-        if (typeof originalSuccess === "function") {
-          originalSuccess(response, stats, ctx, networkDetails);
-        }
-      };
-      super.load(context, config, callbacks);
-    }
-  };
+          if (typeof originalSuccess === "function") {
+            originalSuccess(response, stats, ctx, networkDetails);
+          }
+        };
+        super.load(context, config, callbacks);
+      }
+    };
+  } catch (err) {
+    console.warn("[CleanPlaylistLoader] Loader creation error:", err);
+    return null;
+  }
 }
 
