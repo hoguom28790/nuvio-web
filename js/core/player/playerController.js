@@ -995,11 +995,17 @@ export const PlayerController = {
     }
     this.teardownHlsInstance();
     this.teardownDashInstance();
-    this.multiThreadedPreloader = new MultiThreadedPreloader({
-      concurrency: 4,
-      prefetchWindowSeconds: 600
-    });
-    const hls = hlsJsEngine.create(this.buildHlsConfig(requestHeaders, Hls));
+    let hls = null;
+    try {
+      this.multiThreadedPreloader = new MultiThreadedPreloader({
+        concurrency: 4,
+        prefetchWindowSeconds: 600
+      });
+      hls = hlsJsEngine.create(this.buildHlsConfig(requestHeaders, Hls));
+    } catch (initErr) {
+      console.error("[PlayerController] Failed to instantiate HLS.js:", initErr);
+      return false;
+    }
     if (!hls) {
       return false;
     }
@@ -1811,11 +1817,16 @@ export const PlayerController = {
     if (preferredEngine === "hls.js") {
       const hlsStarted = this.playWithHlsJs(url, requestHeaders, playToken);
       if (!hlsStarted) {
-        this.applyNativeSource(url, sourceType || "application/vnd.apple.mpegurl", "native-hls");
-        this.attemptBrowserVideoPlay({
-          warningLabel: "Playback start rejected",
-          playToken
-        });
+        if (this.canPlayNatively("application/vnd.apple.mpegurl")) {
+          this.applyNativeSource(url, sourceType || "application/vnd.apple.mpegurl", "native-hls");
+          this.attemptBrowserVideoPlay({
+            warningLabel: "Playback start rejected",
+            playToken
+          });
+        } else {
+          console.error("[PlayerController] Hls.js failed to start and native HLS is unsupported by this browser.");
+          this.lastPlaybackErrorCode = 2;
+        }
       }
     } else if (preferredEngine === "dash.js") {
       const dashStarted = this.playWithDashJs(url, playToken);

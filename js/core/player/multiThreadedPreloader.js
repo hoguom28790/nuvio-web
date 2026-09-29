@@ -455,13 +455,20 @@ export function cleanM3u8Text(content) {
  * Creates a custom HLS.js playlist loader (pLoader) that cleans ads on the fly.
  */
 export function createCleanPlaylistLoader(Hls) {
-  const BaseLoader = Hls.DefaultConfig.pLoader;
+  const BaseLoader = Hls?.DefaultConfig?.loader;
+  if (!BaseLoader) {
+    return null;
+  }
   return class CleanPlaylistLoader extends BaseLoader {
     load(context, config, callbacks) {
       const originalSuccess = callbacks.onSuccess;
       callbacks.onSuccess = (response, stats, ctx, networkDetails) => {
         if (response && typeof response.data === "string" && response.data.includes("#EXTM3U")) {
-          response.data = cleanM3u8Text(response.data);
+          try {
+            response.data = cleanM3u8Text(response.data);
+          } catch (err) {
+            console.warn("[CleanPlaylistLoader] Error cleaning playlist:", err);
+          }
         }
         if (typeof originalSuccess === "function") {
           originalSuccess(response, stats, ctx, networkDetails);
