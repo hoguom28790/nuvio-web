@@ -383,3 +383,92 @@ export class MultiThreadedRangePreloader {
     this.activeControllers.clear();
   }
 }
+
+/**
+ * Strips SSAI advertising segments and their bounding discontinuity tags from M3U8 playlists.
+ * Targets KKPhim and Ophim ad segments (e.g., convertv7/, /v7/.../segment_..., segment_0001, etc.)
+ * Ensures contiguous timeline and prevents playback stalls or audio/video desync.
+ */
+export function cleanM3u8Text(content) {
+  if (!content || typeof content !== "string" || !content.includes("#EXTM3U")) {
+    return content;
+  }
+
+  // Master playlists don't contain media segments
+  if (content.includes("#EXT-X-STREAM-INF")) {
+    return content;
+  }
+
+  const lines = content.split(/\r?\n/);
+  const cleanedLines = [];
+  let currentTags = [];
+  let inAdBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.startsWith("#")) {
+      currentTags.push(line);
+    } else {
+      // Check for known ad patterns
+      const isAd = /convertv\d*\/|\/v\d+\/.*segment_|segment_\d{4}/i.test(trimmed);
+      if (isAd) {
+        currentTags = [];
+        inAdBlock = true;
+      } else {
+        if (inAdBlock) {
+          for (let k = currentTags.length - 1; k >= 0; k--) {
+            const tag = currentTags[k].trim();
+            if (tag.startsWith("#EXT-X-DISCONTINUITY") || tag.startsWith("#EXT-X-KEY:METHOD=NONE")) {
+              currentTags.splice(k, 1);
+            }
+          }
+          inAdBlock = false;
+        }
+
+        while (
+          cleanedLines.length > 0 &&
+          cleanedLines[cleanedLines.length - 1].trim().startsWith("#EXT-X-DISCONTINUITY")
+        ) {
+          cleanedLines.pop();
+        }
+
+        for (const tag of currentTags) {
+          cleanedLines.push(tag);
+        }
+        cleanedLines.push(line);
+        currentTags = [];
+      }
+    }
+  }
+
+  for (const tag of currentTags) {
+    cleanedLines.push(tag);
+  }
+
+  return cleanedLines.join("\n");
+}
+
+/**
+ * Creates a custom HLS.js playlist loader (pLoader) that cleans ads on the fly.
+ */
+export function createCleanPlaylistLoader(Hls) {
+  const BaseLoader = Hls.DefaultConfig.pLoader;
+  return class CleanPlaylistLoader extends BaseLoader {
+    load(context, config, callbacks) {
+      const originalSuccess = callbacks.onSuccess;
+      callbacks.onSuccess = (response, stats, ctx, networkDetails) => {
+        if (response && typeof response.data === "string" && response.data.includes("#EXTM3U")) {
+          response.data = cleanM3u8Text(response.data);
+        }
+        if (typeof originalSuccess === "function") {
+          originalSuccess(response, stats, ctx, networkDetails);
+        }
+      };
+      super.load(context, config, callbacks);
+    }
+  };
+}
+

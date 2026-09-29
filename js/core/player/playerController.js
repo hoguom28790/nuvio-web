@@ -13,6 +13,7 @@ import {
   getAllocatedQuotaBytes,
   MultiThreadedPreloader,
   createMultiThreadedHlsLoader,
+  createCleanPlaylistLoader,
   MultiThreadedRangePreloader
 } from "./multiThreadedPreloader.js";
 
@@ -903,6 +904,7 @@ export const PlayerController = {
       Hls && this.multiThreadedPreloader
         ? createMultiThreadedHlsLoader(Hls, this.multiThreadedPreloader)
         : null;
+    const customPLoader = Hls ? createCleanPlaylistLoader(Hls) : null;
 
     return {
       autoStartLoad: false,
@@ -918,6 +920,7 @@ export const PlayerController = {
       fragLoadingTimeOut: 20000,
       manifestLoadingTimeOut: 20000,
       ...(customFLoader ? { fLoader: customFLoader } : {}),
+      ...(customPLoader ? { pLoader: customPLoader } : {}),
       xhrSetup: (xhr) => {
         Object.entries(forwardedHeaders).forEach(([headerName, headerValue]) => {
           try {
