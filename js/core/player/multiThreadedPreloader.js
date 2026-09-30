@@ -10,12 +10,18 @@
 let allocatedQuotaBytes = 512 * 1024 * 1024; // Default fallback: 512 MB
 let isQuotaCalculated = false;
 
-function stripFakePngHeader(buffer, url) {
-    if (buffer && buffer.byteLength > 100 && (url.includes('.png') || url.includes('tiktokcdn'))) {
-        const view = new Uint8Array(buffer);
-        if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) {
-            return buffer.slice(95);
+function stripFakePngHeader(buffer, url = "") {
+    if (!buffer || buffer.byteLength < 100) return buffer;
+    const view = new Uint8Array(buffer);
+    if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) {
+        let offset = 95;
+        for (let i = 4; i <= Math.min(view.length - 376, 512); i++) {
+            if (view[i] === 0x47 && view[i + 188] === 0x47 && view[i + 376] === 0x47) {
+                offset = i;
+                break;
+            }
         }
+        return buffer.slice(offset);
     }
     return buffer;
 }
