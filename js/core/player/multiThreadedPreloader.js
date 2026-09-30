@@ -10,6 +10,16 @@
 let allocatedQuotaBytes = 512 * 1024 * 1024; // Default fallback: 512 MB
 let isQuotaCalculated = false;
 
+function stripFakePngHeader(buffer, url) {
+    if (buffer && buffer.byteLength > 100 && (url.includes('.png') || url.includes('tiktokcdn'))) {
+        const view = new Uint8Array(buffer);
+        if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) {
+            return buffer.slice(95);
+        }
+    }
+    return buffer;
+}
+
 /**
  * Calculates exactly 10% of the browser's storage quota via navigator.storage.estimate().
  * Clamped safely between 128 MB (floor) and 2 GB (ceiling to avoid tab OOM crashes).
@@ -206,7 +216,8 @@ export class MultiThreadedPreloader {
           signal: controller.signal
         });
         if (response.ok) {
-          const buffer = await response.arrayBuffer();
+          let buffer = await response.arrayBuffer();
+          buffer = stripFakePngHeader(buffer, frag.url);
           this.cache.put(frag.url, buffer, frag.start);
           return buffer;
         }
@@ -300,8 +311,11 @@ export function createMultiThreadedHlsLoader(Hls, preloader) {
       // Case 3: Load using default loader and populate cache
       const originalSuccess = callbacks.onSuccess;
       callbacks.onSuccess = (response, stats, ctx, networkDetails) => {
-        if (preloader && response?.data instanceof ArrayBuffer) {
-          preloader.cache.put(url, response.data, fragStart);
+        if (response?.data instanceof ArrayBuffer) {
+          response.data = stripFakePngHeader(response.data, url);
+          if (preloader) {
+            preloader.cache.put(url, response.data, fragStart);
+          }
         }
         if (typeof originalSuccess === "function") {
           originalSuccess(response, stats, ctx, networkDetails);
@@ -456,7 +470,7 @@ export function cleanM3u8Text(content) {
  */
 export function createCleanPlaylistLoader(Hls) {
   const BaseLoader = Hls?.DefaultConfig?.loader;
-  if (typeof BaseLoader !== "function") {
+  if (!BaseLoader || typeof BaseLoader !== "function") {
     return null;
   }
   try {
