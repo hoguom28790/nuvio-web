@@ -8036,19 +8036,6 @@ export const SettingsScreen = {
       });
     });
     this.actionMap.set("tracking:desktop:trakt:disconnect", () => this.openTraktDisconnectDialog());
-    this.actionMap.set("tracking:desktop:trakt:manual_connect", async () => {
-      const input = document.getElementById("traktAccessTokenInput");
-      const token = String(input?.value || "").trim();
-      if (!token) {
-        this.desktopTraktErrorMessage = "Please enter a valid Trakt Access Token.";
-        await this.render();
-        return;
-      }
-      TraktAuthStore.saveToken({ access_token: token, refresh_token: "manual" });
-      this.desktopTraktErrorMessage = null;
-      this.desktopTraktStatusMessage = "Trakt connected via manual token!";
-      await this.render();
-    });
     this.actionMap.set("tracking:desktop:library", () => {
       this.openOptionDialog({
         title: "Library source",
@@ -8144,6 +8131,8 @@ export const SettingsScreen = {
         ? `<div class="settings-tracking-activation">
              <div class="settings-row-title">Enter this code on Trakt</div>
              <p class="settings-row-subtitle">Open Trakt activation and enter this code to approve Nuvio.</p>
+             <canvas data-trakt-auth-qr width="168" height="168" style="width:168px;height:168px;border-radius:10px;"></canvas>
+             <p class="settings-row-subtitle">Scan the QR code with your phone, or enter the code manually.</p>
              <code class="settings-tracking-activation-code">${escapeHtml(trakt.userCode || "-")}</code>
              <div class="settings-tracking-activation-url">${escapeHtml(trakt.verificationUrl || "https://trakt.tv/activate")}</div>
              <div class="settings-tracking-inline-actions">
@@ -8153,12 +8142,7 @@ export const SettingsScreen = {
              <p class="settings-tracking-provider-status">${escapeHtml(this.desktopTraktStatusMessage || "Waiting for Trakt approval...")}</p>
            </div>`
         : traktBridgeStatus === "unavailable" || !TraktAuthService.hasRequiredCredentials()
-          ? `<p class="settings-row-subtitle">Trakt browser authentication is unavailable on this server.</p>
-             <p class="settings-row-subtitle" style="margin-top: 8px;">You can connect manually by providing a Trakt Access Token.</p>
-             <div style="display:flex; gap: 8px; margin-top: 8px;">
-               <input type="text" id="traktAccessTokenInput" class="settings-dialog-input" placeholder="Paste Trakt Access Token here" style="flex:1;">
-               ${inlineButton("tracking:desktop:trakt:manual_connect", "Save Token")}
-             </div>`
+          ? `<p class="settings-row-subtitle">Trakt sign-in is unavailable on this server. Ask the server admin to set TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET for trakt-auth-bridge.</p>`
           : `<p class="settings-row-subtitle">Connect Trakt to sync lists, watched history, playback progress, and scrobbles.</p>
              ${inlineButton("tracking:desktop:trakt:connect", "Connect Trakt")}`;
     const behaviorBody = `
@@ -8563,6 +8547,19 @@ export const SettingsScreen = {
     return this.renderAboutSection(model);
   },
 
+  drawTraktAuthQr(root) {
+    const canvas = root?.querySelector?.("[data-trakt-auth-qr]");
+    if (!canvas) return;
+    const { userCode, verificationUrl } = TraktAuthService.getCurrentAuthState();
+    const base = String(verificationUrl || "https://trakt.tv/activate").replace(/\/+$/, "");
+    if (!userCode) return;
+    try {
+      QrCodeGenerator.generate(canvas, `${base}/${encodeURIComponent(userCode)}`, 336);
+    } catch (error) {
+      console.warn("Failed to generate Trakt authorization QR", error);
+    }
+  },
+
   async render({ refreshModel = true } = {}) {
     if (refreshModel || !this.model) {
       this.model = await this.collectModel();
@@ -8716,6 +8713,7 @@ export const SettingsScreen = {
     if (dialogSlot && typeof this.optionDialog?.onRender === "function") {
       this.optionDialog.onRender(dialogSlot);
     }
+    this.drawTraktAuthQr(contentSlot);
     this.bindTextDialogEvents();
 
     if (isDesktopBrowser) {
