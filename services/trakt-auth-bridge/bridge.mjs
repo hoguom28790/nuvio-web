@@ -19,11 +19,14 @@ const DEVICE_RESPONSE_FIELDS = new Set([
   "interval"
 ]);
 
+let corsOrigin = "";
+
 function json(response, status, payload) {
   response.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff"
+    "X-Content-Type-Options": "nosniff",
+    ...(corsOrigin ? { "Access-Control-Allow-Origin": corsOrigin, Vary: "Origin" } : {})
   });
   response.end(JSON.stringify(payload));
 }
@@ -106,9 +109,26 @@ function upstreamError(status, payload) {
 export function createTraktAuthBridgeHandler({ environment = process.env, fetchImpl = fetch } = {}) {
   const config = bridgeConfiguration(environment);
   const configured = Boolean(config.clientId && config.clientSecret);
+  // Set TRAKT_BRIDGE_ALLOWED_ORIGIN (e.g. https://user.github.io) when the web
+  // app is served from a different origin than this bridge.
+  corsOrigin = String(environment.TRAKT_BRIDGE_ALLOWED_ORIGIN || "").trim();
 
   return async function handleTraktAuthBridge(request, response) {
-    const pathname = new URL(request.url || "/", "http://bridge.local").pathname;
+    const pathname = new URL(request.url || "/", "http://bridge.local").pathname.replace(
+      /^(?!\/api\/trakt\/)/,
+      "/api/trakt"
+    );
+    if (request.method === "OPTIONS" && corsOrigin) {
+      response.writeHead(204, {
+        "Access-Control-Allow-Origin": corsOrigin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400",
+        Vary: "Origin"
+      });
+      response.end();
+      return;
+    }
     if (pathname === "/api/trakt/health" && request.method === "GET") {
       json(response, 200, { configured });
       return;

@@ -1,4 +1,4 @@
-import { TRAKT_API_URL, TRAKT_CLIENT_ID } from "../../config.js";
+import { TRAKT_API_URL, TRAKT_AUTH_BRIDGE_URL, TRAKT_CLIENT_ID } from "../../config.js";
 import { TraktAuthStore } from "../local/traktAuthStore.js";
 import { detailWatchedEnrichmentService } from "./detailWatchedEnrichmentService.js";
 import { TraktCredentialSyncService } from "../../core/profile/traktCredentialSyncService.js";
@@ -6,7 +6,7 @@ import { TraktCredentialSyncService } from "../../core/profile/traktCredentialSy
 const API_VERSION = "2";
 const DEFAULT_API_URL = "https://api.trakt.tv";
 const REFRESH_LEEWAY_SECONDS = 60;
-const BROWSER_AUTH_BRIDGE_BASE_PATH = "/api/trakt";
+const BROWSER_AUTH_BRIDGE_BASE_PATH = TRAKT_AUTH_BRIDGE_URL || "/api/trakt";
 let browserBridgeStatus = "unknown";
 
 function apiBaseUrl() {
