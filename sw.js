@@ -42,11 +42,21 @@ const APP_SHELL = [
   ...LOCALE_ASSETS
 ];
 
+// Only the default and Vietnamese strings are fetched at install. Precaching
+// every locale downloaded ~30 files the user never opens on each update; the
+// others are cached the first time they are requested (see the fetch handler).
+const LAZY_LOCALES = new Set(
+  LOCALE_ASSETS.filter(
+    (asset) => asset !== "./res/values/strings.xml" && asset !== "./res/values-vi/strings.xml"
+  )
+);
+const PRECACHE = APP_SHELL.filter((asset) => !LAZY_LOCALES.has(asset));
+
 const GOOGLE_FONT_ORIGINS = new Set(["https://fonts.googleapis.com", "https://fonts.gstatic.com"]);
 const MATERIAL_ICONS_STYLESHEET = "https://fonts.googleapis.com/icon?family=Material+Icons";
 
 function cacheAppShell() {
-  return caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL));
+  return caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE));
 }
 
 async function cacheGoogleFont(request) {
