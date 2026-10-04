@@ -56,7 +56,7 @@ const GOOGLE_FONT_ORIGINS = new Set(["https://fonts.googleapis.com", "https://fo
 const MATERIAL_ICONS_STYLESHEET = "https://fonts.googleapis.com/icon?family=Material+Icons";
 
 function cacheAppShell() {
-  return caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE));
+  return caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE.map((asset) => new Request(asset, { cache: "reload" }))));
 }
 
 async function cacheGoogleFont(request) {

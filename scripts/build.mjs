@@ -513,6 +513,37 @@ async function buildBrowserServiceWorker() {
   console.log(`service worker cache: nuvio-app-shell-${cacheId}`);
 }
 
+// Static hosts let browsers keep a file for minutes without asking again, and
+// a hand-edited ?v= suffix is easy to forget, so a deploy kept serving the
+// previous bundle. The suffix of every local script and stylesheet in
+// index.html is replaced with a hash of the built file, so it changes exactly
+// when the file does.
+async function versionLocalAssets(html) {
+  const { createHash } = await import("node:crypto");
+  const pattern = /(\s(?:src|href)=")((?:[\w./-]+)\.(?:js|css))(?:\?v=[^"]*)?(")/g;
+  const replacements = new Map();
+  for (const match of html.matchAll(pattern)) {
+    const relativePath = match[2];
+    if (/^(?:https?:)?\/\//.test(relativePath) || relativePath === "nuvio.env.js") {
+      continue;
+    }
+    try {
+      const content = await readFile(path.join(distDir, relativePath));
+      replacements.set(
+        match[0],
+        `${match[1]}${relativePath}?v=${createHash("sha256").update(content).digest("hex").slice(0, 10)}${match[3]}`
+      );
+    } catch {
+      // Not a built file (for example an external reference); leave it alone.
+    }
+  }
+  let result = html;
+  for (const [from, to] of replacements) {
+    result = result.split(from).join(to);
+  }
+  return result;
+}
+
 async function runBuild() {
   try {
     console.log("cleaning dist directory...");
@@ -563,7 +594,7 @@ async function runBuild() {
     await buildBundle();
 
     const sourceIndex = await readFile(path.join(rootDir, "index.html"), "utf8");
-    await writeFile(path.join(distDir, "index.html"), sourceIndex);
+    await writeFile(path.join(distDir, "index.html"), await versionLocalAssets(sourceIndex));
 
     // After the shell it caches exists: the cache name is a hash of those files.
     await buildBrowserServiceWorker();
