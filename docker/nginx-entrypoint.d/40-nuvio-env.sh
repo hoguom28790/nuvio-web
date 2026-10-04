@@ -51,6 +51,7 @@ EOF
   write_value DONATIONS_DONATE_URL "${DONATIONS_DONATE_URL:-}"; printf ',\n'
   write_value SPONSOR_NAMES "${SPONSOR_NAMES:-ragmehos.}"; printf ',\n'
   write_value TRAKT_CLIENT_ID "${TRAKT_CLIENT_ID:-}"; printf ',\n'
+  write_value TRAKT_AUTH_BRIDGE_URL "${TRAKT_AUTH_BRIDGE_URL:-}"; printf ',\n'
   write_value SIMKL_CLIENT_ID "${SIMKL_CLIENT_ID:-}"; printf ',\n'
   write_value SIMKL_APP_NAME "${SIMKL_APP_NAME:-nuvio}"; printf ',\n'
   write_value PREMIUMIZE_CLIENT_ID "${PREMIUMIZE_CLIENT_ID:-}"

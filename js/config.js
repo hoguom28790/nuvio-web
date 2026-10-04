@@ -47,6 +47,9 @@ export const DONATIONS_DONATE_URL = String(runtimeEnv.DONATIONS_DONATE_URL || ""
 export const SPONSOR_NAMES = String(runtimeEnv.SPONSOR_NAMES || "").trim() || "ragmehos.";
 export const TMDB_API_KEY = String(runtimeEnv.TMDB_API_KEY || "").trim();
 export const TRAKT_CLIENT_ID = String(runtimeEnv.TRAKT_CLIENT_ID || "").trim();
+export const TRAKT_AUTH_BRIDGE_URL = String(runtimeEnv.TRAKT_AUTH_BRIDGE_URL || "")
+  .trim()
+  .replace(/\/+$/, "");
 export const TRAKT_API_URL = "https://api.trakt.tv/";
 export const SIMKL_CLIENT_ID = String(runtimeEnv.SIMKL_CLIENT_ID || "").trim();
 export const SIMKL_API_URL = "https://api.simkl.com";

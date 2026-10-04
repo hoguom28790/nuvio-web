@@ -48,6 +48,8 @@
     TMDB_API_KEY: typeof existing.TMDB_API_KEY === "undefined" ? "" : existing.TMDB_API_KEY,
     TRAKT_CLIENT_ID:
       typeof existing.TRAKT_CLIENT_ID === "undefined" ? "" : existing.TRAKT_CLIENT_ID,
+    TRAKT_AUTH_BRIDGE_URL:
+      typeof existing.TRAKT_AUTH_BRIDGE_URL === "undefined" ? "" : existing.TRAKT_AUTH_BRIDGE_URL,
     SIMKL_CLIENT_ID:
       typeof existing.SIMKL_CLIENT_ID === "undefined" ? "" : existing.SIMKL_CLIENT_ID,
     SIMKL_APP_NAME:
