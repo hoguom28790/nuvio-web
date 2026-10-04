@@ -4473,6 +4473,7 @@ export const PlayerScreen = {
                   <div id="playerProgressBuffered" class="player-progress-buffered"></div>
                   <div id="playerProgressFill" class="player-progress-fill"></div>
                 </div>
+                <div id="playerProgressTip" class="player-progress-tip" aria-hidden="true">0:00</div>
               </div>
 
               <div class="player-controls-row">
@@ -5691,6 +5692,7 @@ export const PlayerScreen = {
           endsAt: uiRoot.querySelector("#playerEndsAt"),
           progressBuffered: uiRoot.querySelector("#playerProgressBuffered"),
           progressFill: uiRoot.querySelector("#playerProgressFill"),
+          progressTip: uiRoot.querySelector("#playerProgressTip"),
           controlButtons: uiRoot.querySelector("#playerControlButtons"),
           timeLabel: uiRoot.querySelector("#playerTimeLabel"),
           startupErrorButton: uiRoot.querySelector(
@@ -5712,8 +5714,79 @@ export const PlayerScreen = {
       seekDirectionText: "",
       progressFocused: false
     };
+    this.bindProgressTip();
     this.refreshLoadingOverlayPresentation();
     this.renderStartupErrorOverlay();
+  },
+
+  showProgressTip(ratio) {
+    const tip = this.uiRefs?.progressTip;
+    const duration = this.getPlaybackDurationSeconds();
+    if (!tip || !Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+    const clamped = clamp(Number(ratio) || 0, 0, 1);
+    const text = formatTime(duration * clamped);
+    if (tip.textContent !== text) {
+      tip.textContent = text;
+    }
+    tip.style.left = `${Math.round(clamped * 10000) / 100}%`;
+    tip.classList.add("is-visible");
+  },
+
+  hideProgressTip() {
+    this.uiRefs?.progressTip?.classList.remove("is-visible");
+  },
+
+  // Shows the target time above the seek bar while the pointer hovers or drags
+  // over it, so the position can be read before releasing.
+  bindProgressTip() {
+    const shell = this.uiRefs?.progressShell;
+    if (!shell || shell.dataset.progressTipBound === "1") {
+      return;
+    }
+    shell.dataset.progressTipBound = "1";
+    const ratioFromEvent = (event) => {
+      const rect = shell.getBoundingClientRect();
+      return rect.width > 0 ? (Number(event.clientX) - rect.left) / rect.width : 0;
+    };
+    let dragging = false;
+    let hideTimer = null;
+    const cancelHide = () => {
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+    };
+    shell.addEventListener("pointerenter", (event) => {
+      cancelHide();
+      this.showProgressTip(ratioFromEvent(event));
+    });
+    shell.addEventListener("pointermove", (event) => {
+      cancelHide();
+      this.showProgressTip(ratioFromEvent(event));
+    });
+    shell.addEventListener("pointerdown", (event) => {
+      dragging = true;
+      cancelHide();
+      this.showProgressTip(ratioFromEvent(event));
+    });
+    const endDrag = (event) => {
+      dragging = false;
+      // Touch has no hover: keep the time visible briefly after release.
+      if (event?.pointerType === "mouse") {
+        return;
+      }
+      cancelHide();
+      hideTimer = setTimeout(() => this.hideProgressTip(), 700);
+    };
+    shell.addEventListener("pointerup", endDrag);
+    shell.addEventListener("pointercancel", endDrag);
+    shell.addEventListener("pointerleave", () => {
+      if (!dragging) {
+        this.hideProgressTip();
+      }
+    });
   },
 
   getLoadingOverlayMeta() {
@@ -10009,6 +10082,15 @@ export const PlayerScreen = {
         progressBuffered.classList.toggle("is-visible", bufferedVisible);
         uiState.bufferedVisible = bufferedVisible;
       }
+    }
+    const keyboardSeeking =
+      this.controlsVisible && this.controlFocusZone === "progress" && this.seekPreviewSeconds != null;
+    if (keyboardSeeking) {
+      this.showProgressTip(progress);
+      uiState.progressTipKeyboard = true;
+    } else if (uiState.progressTipKeyboard) {
+      uiState.progressTipKeyboard = false;
+      this.hideProgressTip();
     }
     const progressFill = uiRefs.progressFill;
     if (progressFill) {
