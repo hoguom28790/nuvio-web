@@ -10963,7 +10963,9 @@ export const PlayerScreen = {
   },
 
   getPlaybackStallTimeoutMs({ startup = false } = {}) {
-    return startup ? 18000 : 9000;
+    // 18 s cut off streams whose first fragment alone takes ~7 s on a slow or
+    // filtered network, switching to the native engine before hls.js got going.
+    return startup ? 30000 : 9000;
   },
 
   schedulePlaybackStallGuard({ timeoutMs: timeoutOverrideMs = null } = {}) {

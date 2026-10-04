@@ -16,6 +16,14 @@ import {
   createCleanPlaylistLoader
 } from "./multiThreadedPreloader.js";
 
+// Parallel prefetching of upcoming HLS fragments (multiThreadedPreloader.js)
+// is off. Playback stalled with it on: fragments served from its cache parsed
+// as empty, a download the CDN never answered blocked hls.js, and four
+// parallel requests competed with the player for the same slow connection.
+// hls.js already buffers ahead on its own. The fake-PNG header stripping in
+// the fragment loader stays active.
+const HLS_PREFETCH_ENABLED = false;
+
 const MIN_PROGRESS_SYNC_DURATION_MS = 1000;
 const HLS_TRANSIENT_LEVEL_404_RETRY_LIMIT = 2;
 const HLS_TRANSIENT_LEVEL_404_RETRY_BASE_DELAY_MS = 1500;
@@ -898,10 +906,9 @@ export const PlayerController = {
   buildHlsConfig(requestHeaders = {}, Hls = null) {
     const forwardedHeaders = this.normalizePlaybackHeaders(requestHeaders);
     const allocatedBufferBytes = getAllocatedQuotaBytes();
-    const customFLoader =
-      Hls && this.multiThreadedPreloader
-        ? createMultiThreadedHlsLoader(Hls, this.multiThreadedPreloader)
-        : null;
+    const customFLoader = Hls
+      ? createMultiThreadedHlsLoader(Hls, this.multiThreadedPreloader || null)
+      : null;
     const customPLoader = Hls ? createCleanPlaylistLoader(Hls) : null;
 
     return {
@@ -995,10 +1002,12 @@ export const PlayerController = {
     this.teardownDashInstance();
     let hls = null;
     try {
-      this.multiThreadedPreloader = new MultiThreadedPreloader({
-        concurrency: 4,
-        prefetchWindowSeconds: 600
-      });
+      this.multiThreadedPreloader = HLS_PREFETCH_ENABLED
+        ? new MultiThreadedPreloader({
+            concurrency: 4,
+            prefetchWindowSeconds: 600
+          })
+        : null;
       hls = hlsJsEngine.create(this.buildHlsConfig(requestHeaders, Hls));
     } catch (initErr) {
       console.error("[PlayerController] Failed to instantiate HLS.js:", initErr);
