@@ -7,23 +7,28 @@
  * Guarantees smooth, instant playback when seeking forwards or backwards.
  */
 
+const FRAGMENT_DOWNLOAD_TIMEOUT_MS = 25000;
+// How long the HLS fragment loader waits for a fragment the preloader is
+// already fetching before it requests the fragment itself.
+const PRELOADER_WAIT_MS = 5000;
+
 let allocatedQuotaBytes = 512 * 1024 * 1024; // Default fallback: 512 MB
 let isQuotaCalculated = false;
 
 function stripFakePngHeader(buffer, url = "") {
-    if (!buffer || buffer.byteLength < 100) return buffer;
-    const view = new Uint8Array(buffer);
-    if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) {
-        let offset = 95;
-        for (let i = 4; i <= Math.min(view.length - 376, 512); i++) {
-            if (view[i] === 0x47 && view[i + 188] === 0x47 && view[i + 376] === 0x47) {
-                offset = i;
-                break;
-            }
-        }
-        return buffer.slice(offset);
+  if (!buffer || buffer.byteLength < 100) return buffer;
+  const view = new Uint8Array(buffer);
+  if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4e && view[3] === 0x47) {
+    let offset = 95;
+    for (let i = 4; i <= Math.min(view.length - 376, 512); i++) {
+      if (view[i] === 0x47 && view[i + 188] === 0x47 && view[i + 376] === 0x47) {
+        offset = i;
+        break;
+      }
     }
-    return buffer;
+    return buffer.slice(offset);
+  }
+  return buffer;
 }
 
 /**
@@ -45,7 +50,10 @@ export async function getBufferQuotaBytes() {
       if (Number.isFinite(quota) && quota > 0) {
         // Exactly 10% of browser quota as requested
         const tenPercent = Math.floor(quota * 0.1);
-        allocatedQuotaBytes = Math.max(128 * 1024 * 1024, Math.min(2 * 1024 * 1024 * 1024, tenPercent));
+        allocatedQuotaBytes = Math.max(
+          128 * 1024 * 1024,
+          Math.min(2 * 1024 * 1024 * 1024, tenPercent)
+        );
         isQuotaCalculated = true;
         console.log(
           `[MultiThreadedPreloader] 10% browser quota allocated: ${(allocatedQuotaBytes / (1024 * 1024)).toFixed(1)} MB`
@@ -62,6 +70,17 @@ export async function getBufferQuotaBytes() {
 
 export function getAllocatedQuotaBytes() {
   return allocatedQuotaBytes;
+}
+
+// hls.js hands fragment data to its transmuxer worker as a transferable, which
+// detaches the ArrayBuffer. Anything kept in the cache must therefore never be
+// the same object given to hls.js, and cached data is always delivered as a
+// copy; a detached (empty) entry is treated as missing.
+function copyBuffer(buffer) {
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) {
+    return null;
+  }
+  return buffer.slice(0);
 }
 
 /**
@@ -130,7 +149,12 @@ export class SegmentCache {
  * within a 10-minute forward window.
  */
 export class MultiThreadedPreloader {
-  constructor({ concurrency = 4, prefetchWindowSeconds = 600 } = {}) {
+  constructor({
+    concurrency = 4,
+    prefetchWindowSeconds = 600,
+    downloadTimeoutMs = FRAGMENT_DOWNLOAD_TIMEOUT_MS
+  } = {}) {
+    this.downloadTimeoutMs = downloadTimeoutMs;
     this.concurrency = concurrency;
     this.prefetchWindowSeconds = prefetchWindowSeconds;
     this.cache = new SegmentCache();
@@ -215,6 +239,13 @@ export class MultiThreadedPreloader {
 
   downloadFragment(frag) {
     const controller = new AbortController();
+    // A request the CDN never answers must not stay "active" forever: the HLS
+    // loader waits on this promise, so a hung download stalled playback.
+    const timeoutTimer = setTimeout(() => {
+      try {
+        controller.abort();
+      } catch (_) {}
+    }, this.downloadTimeoutMs);
     const promise = (async () => {
       try {
         const response = await fetch(frag.url, {
@@ -230,6 +261,7 @@ export class MultiThreadedPreloader {
       } catch (_) {
         // Aborted or network error, silently handle
       } finally {
+        clearTimeout(timeoutTimer);
         this.activeDownloads.delete(frag.url);
         this.processQueue();
       }
@@ -257,7 +289,7 @@ export class MultiThreadedPreloader {
  * Creates an Hls.js custom fragment loader that checks the MultiThreadedPreloader cache
  * before issuing network requests. Enables instant seek response.
  */
-export function createMultiThreadedHlsLoader(Hls, preloader) {
+export function createMultiThreadedHlsLoader(Hls, preloader, { waitMs = PRELOADER_WAIT_MS } = {}) {
   const BaseLoader = Hls?.DefaultConfig?.loader;
   if (!BaseLoader) {
     return null;
@@ -268,22 +300,35 @@ export function createMultiThreadedHlsLoader(Hls, preloader) {
       const url = context?.url;
       const fragStart = context.frag?.start || 0;
 
+      // hls.js (progressive mode) feeds its transmuxer from onProgress and only
+      // flushes on completion, so data delivered straight from memory must go
+      // through onProgress before onSuccess -- delivering it through onSuccess
+      // alone produced "Found no media in fragment N" for every prefetched
+      // fragment.
+      const deliver = (data, bw) => {
+        const now = performance.now();
+        const stats = this.stats || {};
+        stats.aborted = false;
+        stats.retry = 0;
+        stats.loaded = data.byteLength;
+        stats.total = data.byteLength;
+        if (stats.loading) {
+          stats.loading.start = now - 20;
+          stats.loading.first = now - 10;
+          stats.loading.end = now;
+        }
+        stats.bw = bw;
+        if (typeof callbacks.onProgress === "function") {
+          callbacks.onProgress(stats, context, data, null);
+        }
+        callbacks.onSuccess({ url, data }, stats, context, null);
+      };
+
       // Case 1: Already cached in memory
       if (preloader && preloader.cache.has(url)) {
-        const cachedData = preloader.cache.get(url);
+        const cachedData = copyBuffer(preloader.cache.get(url));
         if (cachedData) {
-          const stats = {
-            trequest: performance.now(),
-            tfirst: performance.now(),
-            tload: performance.now(),
-            loaded: cachedData.byteLength,
-            total: cachedData.byteLength,
-            bw: 100000000,
-            retry: 0
-          };
-          queueMicrotask(() => {
-            callbacks.onSuccess({ url, data: cachedData }, stats, context);
-          });
+          queueMicrotask(() => deliver(cachedData, 100000000));
           return;
         }
       }
@@ -292,24 +337,31 @@ export function createMultiThreadedHlsLoader(Hls, preloader) {
       if (preloader && preloader.activeDownloads.has(url)) {
         const active = preloader.activeDownloads.get(url);
         if (active?.promise) {
-          active.promise.then((buffer) => {
-            if (buffer) {
-              const stats = {
-                trequest: performance.now(),
-                tfirst: performance.now(),
-                tload: performance.now(),
-                loaded: buffer.byteLength,
-                total: buffer.byteLength,
-                bw: 80000000,
-                retry: 0
-              };
-              callbacks.onSuccess({ url, data: buffer }, stats, context);
-            } else {
-              super.load(context, config, callbacks);
-            }
-          }).catch(() => {
+          let settled = false;
+          const loadDirectly = () => {
+            if (settled) return;
+            settled = true;
             super.load(context, config, callbacks);
-          });
+          };
+          // Never wait indefinitely: if the preloader's request is slow, load
+          // the fragment through the normal loader instead.
+          const waitTimer = setTimeout(loadDirectly, waitMs);
+          active.promise
+            .then((buffer) => {
+              clearTimeout(waitTimer);
+              if (settled) return;
+              settled = true;
+              const data = copyBuffer(buffer);
+              if (data) {
+                deliver(data, 80000000);
+              } else {
+                super.load(context, config, callbacks);
+              }
+            })
+            .catch(() => {
+              clearTimeout(waitTimer);
+              loadDirectly();
+            });
           return;
         }
       }
@@ -320,7 +372,15 @@ export function createMultiThreadedHlsLoader(Hls, preloader) {
         if (response?.data instanceof ArrayBuffer) {
           response.data = stripFakePngHeader(response.data, url);
           if (preloader) {
-            preloader.cache.put(url, response.data, fragStart);
+            // Caching is best effort and must never block hls.js: the buffer
+            // may already have been handed to its worker (detached), in which
+            // case there is nothing to keep.
+            try {
+              const copy = copyBuffer(response.data);
+              if (copy) {
+                preloader.cache.put(url, copy, fragStart);
+              }
+            } catch (_) {}
           }
         }
         if (typeof originalSuccess === "function") {
@@ -388,7 +448,8 @@ export class MultiThreadedRangePreloader {
         },
         signal: controller.signal
       });
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       this.activeControllers.delete(controller);
     }
   }
@@ -442,7 +503,10 @@ export function cleanM3u8Text(content) {
         if (inAdBlock) {
           for (let k = currentTags.length - 1; k >= 0; k--) {
             const tag = currentTags[k].trim();
-            if (tag.startsWith("#EXT-X-DISCONTINUITY") || tag.startsWith("#EXT-X-KEY:METHOD=NONE")) {
+            if (
+              tag.startsWith("#EXT-X-DISCONTINUITY") ||
+              tag.startsWith("#EXT-X-KEY:METHOD=NONE")
+            ) {
               currentTags.splice(k, 1);
             }
           }
@@ -513,4 +577,3 @@ export function createCleanPlaylistLoader(Hls) {
     return null;
   }
 }
-
