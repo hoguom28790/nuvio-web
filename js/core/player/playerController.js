@@ -905,25 +905,38 @@ export const PlayerController = {
 
   buildHlsConfig(requestHeaders = {}, Hls = null) {
     const forwardedHeaders = this.normalizePlaybackHeaders(requestHeaders);
-    const allocatedBufferBytes = getAllocatedQuotaBytes();
     const customFLoader = Hls
       ? createMultiThreadedHlsLoader(Hls, this.multiThreadedPreloader || null)
       : null;
     const customPLoader = Hls ? createCleanPlaylistLoader(Hls) : null;
 
+    // Same values as Stremio web's player (stremio-video HTMLVideo/hlsConfig.js),
+    // which plays the same sources: small buffers, no progressive streaming
+    // (data reaches hls.js through onSuccess, which custom loaders rely on),
+    // and generous retry limits. The previous config buffered 10 minutes ahead
+    // with a ~1 GB budget in progressive mode, which stalled slow or filtered
+    // connections and exceeded MSE quotas.
     return {
       autoStartLoad: false,
       enableWorker: true,
       lowLatencyMode: false,
-      backBufferLength: 300,
-      maxBufferLength: 600,
-      maxMaxBufferLength: 1200,
-      maxBufferSize: allocatedBufferBytes,
-      maxBufferHole: 0.5,
-      startFragPrefetch: true,
-      progressive: true,
-      fragLoadingTimeOut: 20000,
-      manifestLoadingTimeOut: 20000,
+      backBufferLength: 30,
+      maxBufferLength: 50,
+      maxMaxBufferLength: 80,
+      maxFragLookUpTolerance: 0,
+      maxBufferHole: 0,
+      appendErrorMaxRetry: 20,
+      nudgeMaxRetry: 20,
+      manifestLoadingTimeOut: 30000,
+      manifestLoadingMaxRetry: 10,
+      fragLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 10000,
+          maxLoadTimeMs: 120000,
+          timeoutRetry: { maxNumRetry: 20, retryDelayMs: 0, maxRetryDelayMs: 15 },
+          errorRetry: { maxNumRetry: 6, retryDelayMs: 1000, maxRetryDelayMs: 15 }
+        }
+      },
       ...(customFLoader ? { fLoader: customFLoader } : {}),
       ...(customPLoader ? { pLoader: customPLoader } : {}),
       xhrSetup: (xhr) => {
