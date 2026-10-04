@@ -14,6 +14,14 @@ const STREAMING_LIBS = [
       "https://cdn.jsdelivr.net/npm/dashjs@4.7.4/dist/dash.all.min.js"
     ],
     isLoaded: () => Boolean(globalThis.dashjs)
+  },
+  {
+    id: "mpegts",
+    sources: [
+      "assets/libs/mpegts.js",
+      "https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js"
+    ],
+    isLoaded: () => Boolean(globalThis.mpegts)
   }
 ];
 
@@ -64,10 +72,11 @@ function ensureStreamingLibrary(entry) {
   return loadingPromise;
 }
 
-export async function loadStreamingLibs({ hls = true, dash = true } = {}) {
+export async function loadStreamingLibs({ hls = true, dash = true, mpegts = false } = {}) {
   const requiredLibraryIds = new Set([
     ...(hls ? ["hls"] : []),
-    ...(dash ? ["dash"] : [])
+    ...(dash ? ["dash"] : []),
+    ...(mpegts ? ["mpegts"] : [])
   ]);
   for (const entry of STREAMING_LIBS) {
     if (!requiredLibraryIds.has(entry.id) || entry.isLoaded()) {
@@ -82,7 +91,10 @@ export async function loadStreamingLibs({ hls = true, dash = true } = {}) {
 }
 
 export function warmStreamingLibs(options = {}) {
-  if (streamingLibsWarmupScheduled || STREAMING_LIBS.every((entry) => entry.isLoaded())) {
+  if (
+    streamingLibsWarmupScheduled ||
+    STREAMING_LIBS.filter((entry) => entry.id !== "mpegts").every((entry) => entry.isLoaded())
+  ) {
     return;
   }
   streamingLibsWarmupScheduled = true;

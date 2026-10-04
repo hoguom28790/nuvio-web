@@ -26,6 +26,7 @@ export const LICENSES_ATTRIBUTION_SECTIONS = [
     items: [
       ["hls.js 1.5.20", "https://github.com/video-dev/hls.js", "Apache-2.0"],
       ["dash.js 4.7.4", "https://github.com/Dash-Industry-Forum/dash.js", "BSD-3-Clause"],
+      ["mpegts.js 1.8.2", "https://github.com/xqq/mpegts.js", "Apache-2.0"],
       ["JSZip 3.10.1", "https://github.com/Stuk/jszip", "MIT OR GPL-3.0-or-later"],
       ["libbitsub 1.10.1", "https://github.com/altqx/libbitsub", "MIT"]
     ]

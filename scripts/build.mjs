@@ -548,6 +548,14 @@ async function runBuild() {
       cp(
         path.join(rootDir, "node_modules", "dashjs", "LICENSE.md"),
         path.join(distDir, "assets", "libs", "dashjs.LICENSE.md")
+      ),
+      cp(
+        path.join(rootDir, "node_modules", "mpegts.js", "dist", "mpegts.js"),
+        path.join(distDir, "assets", "libs", "mpegts.js")
+      ),
+      cp(
+        path.join(rootDir, "node_modules", "mpegts.js", "LICENSE"),
+        path.join(distDir, "assets", "libs", "mpegts.js.LICENSE")
       )
     ]);
     await cp(

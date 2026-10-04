@@ -6,6 +6,7 @@ import { WatchProgressSyncService } from "../profile/watchProgressSyncService.js
 import { nativeVideoEngine } from "./engines/nativeVideoEngine.js";
 import { hlsJsEngine } from "./engines/hlsJsEngine.js";
 import { dashJsEngine } from "./engines/dashJsEngine.js";
+import { mpegtsEngine } from "./engines/mpegtsEngine.js";
 import { isTerminalHlsHttpStatus } from "./hlsNetworkErrorPolicy.js";
 import { loadStreamingLibs } from "../../runtime/loadStreamingLibs.js";
 import {
@@ -35,6 +36,7 @@ export const PlayerController = {
   lifecycleFlushHandler: null,
   visibilityFlushHandler: null,
   hlsInstance: null,
+  mpegtsInstance: null,
   dashInstance: null,
   playbackEngine: "none",
   lastPlaybackErrorCode: 0,
@@ -119,6 +121,8 @@ export const PlayerController = {
       dash: "application/dash+xml",
       hls: "application/vnd.apple.mpegurl",
       m3u8: "application/vnd.apple.mpegurl",
+      flv: "video/x-flv",
+      m2ts: "video/mp2t",
       m4v: "video/mp4",
       mkv: "video/x-matroska",
       mov: "video/quicktime",
@@ -138,7 +142,8 @@ export const PlayerController = {
     if (
       this.isLikelyHlsMimeType(normalized) ||
       this.isLikelyDashMimeType(normalized) ||
-      this.isLikelySmoothStreamingMimeType(normalized)
+      this.isLikelySmoothStreamingMimeType(normalized) ||
+      this.isLikelyMpegtsMimeType(normalized)
     ) {
       return normalized;
     }
@@ -179,7 +184,7 @@ export const PlayerController = {
         return "application/vnd.apple.mpegurl";
       }
       const extensionMatch = path.match(
-        /\.(mp4|m4v|mov|webm|mkv|avi|wmv|ts|m2ts|mpg|mpeg|3gp|mp3|aac|flac)(?=($|[/?#&]))/i
+        /\.(mp4|m4v|mov|webm|mkv|avi|wmv|flv|ts|m2ts|mpg|mpeg|3gp|mp3|aac|flac)(?=($|[/?#&]))/i
       );
       if (extensionMatch) {
         const extension = String(extensionMatch[1] || "").toLowerCase();
@@ -188,6 +193,7 @@ export const PlayerController = {
           aac: "audio/aac",
           avi: "video/x-msvideo",
           flac: "audio/flac",
+          flv: "video/x-flv",
           m2ts: "video/mp2t",
           m4v: "video/mp4",
           mkv: "video/x-matroska",
@@ -227,6 +233,11 @@ export const PlayerController = {
     return this.normalizeMimeType(mimeType) === "application/dash+xml";
   },
 
+  isLikelyMpegtsMimeType(mimeType) {
+    const normalized = this.normalizeMimeType(mimeType);
+    return normalized === "video/mp2t" || normalized === "video/x-flv";
+  },
+
   isLikelySmoothStreamingMimeType(mimeType) {
     return this.normalizeMimeType(mimeType) === "application/vnd.ms-sstr+xml";
   },
@@ -237,6 +248,10 @@ export const PlayerController = {
 
   canUseDashJs() {
     return dashJsEngine.isSupported();
+  },
+
+  canUseMpegtsJs() {
+    return mpegtsEngine.isSupported();
   },
 
   canPlayNatively(mimeType) {
@@ -741,6 +756,19 @@ export const PlayerController = {
       return candidates;
     }
 
+    if (this.isLikelyMpegtsMimeType(normalizedSourceType)) {
+      // Raw MPEG-TS / FLV files: browsers rarely play them natively, so
+      // mpegts.js (loaded on demand) remuxes them into MSE. Safari plays TS
+      // natively and keeps the native engine first.
+      const candidates = [];
+      if (this.canPlayNatively(this.normalizeMimeType(normalizedSourceType))) {
+        pushCandidate(candidates, "native-file");
+      }
+      pushCandidate(candidates, "mpegts.js");
+      pushCandidate(candidates, "native-file");
+      return candidates;
+    }
+
     return ["native-file"];
   },
 
@@ -817,6 +845,21 @@ export const PlayerController = {
     this.hlsInstance = null;
   },
 
+  teardownMpegtsInstance() {
+    if (!this.mpegtsInstance) {
+      return;
+    }
+    try {
+      this.mpegtsInstance.pause?.();
+      this.mpegtsInstance.unload?.();
+      this.mpegtsInstance.detachMediaElement?.();
+      this.mpegtsInstance.destroy?.();
+    } catch (_) {
+      // Ignore mpegts.js cleanup failures.
+    }
+    this.mpegtsInstance = null;
+  },
+
   teardownDashInstance() {
     if (!this.dashInstance) {
       return;
@@ -838,6 +881,7 @@ export const PlayerController = {
     }
     this.teardownHlsInstance();
     this.teardownDashInstance();
+    this.teardownMpegtsInstance();
     this.playbackEngine = "none";
   },
 
@@ -1206,6 +1250,60 @@ export const PlayerController = {
     this.video.removeAttribute("src");
     hls.attachMedia(this.video);
     return true;
+  },
+
+  playWithMpegtsJs(url, requestHeaders = {}, mimeType = null, playToken = null) {
+    if (!this.video || !this.canUseMpegtsJs()) {
+      return false;
+    }
+    if (!this.isPlaybackRequestActive(playToken, url)) {
+      return false;
+    }
+    this.teardownMpegtsInstance();
+    this.teardownHlsInstance();
+    this.teardownDashInstance();
+
+    const isFlv = this.normalizeMimeType(mimeType) === "video/x-flv";
+    let player = null;
+    try {
+      player = mpegtsEngine.create(
+        { type: isFlv ? "flv" : "mpegts", isLive: false, url },
+        {
+          enableWorker: true,
+          enableStashBuffer: true,
+          lazyLoad: true,
+          lazyLoadMaxDuration: 180,
+          seekType: "range",
+          headers: { ...(requestHeaders || {}) }
+        }
+      );
+      if (!player) {
+        return false;
+      }
+      this.mpegtsInstance = player;
+      this.playbackEngine = "mpegts.js";
+      const events = mpegtsEngine.getEvents();
+      player.on?.(events.ERROR, (errorType, errorDetail) => {
+        if (this.mpegtsInstance !== player) {
+          return;
+        }
+        this.lastPlaybackErrorCode = 4;
+        this.teardownMpegtsInstance();
+        this.emitVideoEvent("error", {
+          playbackEngine: "mpegts.js",
+          mediaErrorCode: 4,
+          mpegtsErrorType: String(errorType || ""),
+          mpegtsErrorDetail: String(errorDetail || "")
+        });
+      });
+      player.attachMediaElement(this.video);
+      player.load();
+      return true;
+    } catch (error) {
+      console.error("[PlayerController] Failed to start mpegts.js:", error);
+      this.teardownMpegtsInstance();
+      return false;
+    }
   },
 
   playWithDashJs(url, playToken = null) {
@@ -1602,6 +1700,10 @@ export const PlayerController = {
   async ensureAdaptiveLibrariesForSource(sourceType, playbackEngine = null) {
     const normalizedEngine = String(playbackEngine || "").trim();
     const normalizedSourceType = String(sourceType || "").trim();
+    if (normalizedEngine === "mpegts.js") {
+      await loadStreamingLibs({ hls: false, dash: false, mpegts: true });
+      return;
+    }
     if (!normalizedSourceType) {
       return;
     }
@@ -1835,6 +1937,16 @@ export const PlayerController = {
       }
       this.attemptBrowserVideoPlay({
         warningLabel: "DASH playback start rejected",
+        playToken
+      });
+    } else if (preferredEngine === "mpegts.js") {
+      const mpegtsMime = sourceType || this.guessMediaMimeType(url);
+      const mpegtsStarted = this.playWithMpegtsJs(url, requestHeaders, mpegtsMime, playToken);
+      if (!mpegtsStarted) {
+        this.applyNativeSource(url, sourceType || null, "native-file");
+      }
+      this.attemptBrowserVideoPlay({
+        warningLabel: "MPEG-TS playback start rejected",
         playToken
       });
     } else if (preferredEngine === "native-hls") {
