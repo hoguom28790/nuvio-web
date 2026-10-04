@@ -8668,6 +8668,10 @@ export const PlayerScreen = {
       }
       this.lastPlaybackErrorAt = now;
 
+      // Read once: the error paths below pass it to the message builders. It was
+      // never defined, so a failure with no alternative engine threw a
+      // ReferenceError and the startup error screen never appeared.
+      const currentSourceCandidate = this.getCurrentStreamCandidate();
       const detailErrorCode = Number(event?.detail?.mediaErrorCode || 0);
       const controllerErrorCode =
         typeof PlayerController.getLastPlaybackErrorCode === "function"

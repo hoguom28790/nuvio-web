@@ -16,6 +16,32 @@ function hasHeader(headers, name) {
   return Object.keys(headers || {}).some((key) => String(key).toLowerCase() === target);
 }
 
+// Without a limit a stalled connection (no error, no response) leaves every
+// caller waiting forever -- profile activation and Home loading included.
+const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
+
+// The limit covers the time until response headers arrive; once the server
+// answers, the timer is cleared so a large body is never cut off mid-read.
+async function fetchWithTimeout(url, init, timeoutMs) {
+  if (init.signal || !(timeoutMs > 0) || typeof AbortController !== "function") {
+    return fetch(url, init);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const timeoutError = new Error(`Request timed out after ${timeoutMs} ms`);
+      timeoutError.code = "ETIMEDOUT";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function httpRequest(url, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   const includeSessionAuth = options.includeSessionAuth !== false;
@@ -39,7 +65,13 @@ export async function httpRequest(url, options = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  const { includeSessionAuth: _ignoredIncludeSessionAuth, ...fetchOptions } = options;
+  const {
+    includeSessionAuth: _ignoredIncludeSessionAuth,
+    timeoutMs: requestedTimeoutMs,
+    ...fetchOptions
+  } = options;
+  const timeoutMs =
+    requestedTimeoutMs === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : Number(requestedTimeoutMs);
   const fetchInit = {
     ...fetchOptions,
     method,
@@ -47,7 +79,7 @@ export async function httpRequest(url, options = {}) {
     headers
   };
 
-  let response = await fetch(url, fetchInit);
+  let response = await fetchWithTimeout(url, fetchInit, timeoutMs);
 
   if (response.status === 401 && includeSessionAuth && SessionStore.refreshToken) {
     const refreshed = await AuthManager.refreshSessionIfNeeded({ force: true });
@@ -60,7 +92,7 @@ export async function httpRequest(url, options = {}) {
           Authorization: `Bearer ${SessionStore.accessToken}`
         }
       };
-      response = await fetch(url, retryInit);
+      response = await fetchWithTimeout(url, retryInit, timeoutMs);
     }
   }
 
