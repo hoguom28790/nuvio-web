@@ -1,5 +1,6 @@
 import { safeApiCall } from "../../core/network/safeApiCall.js";
 import { CatalogApi } from "../remote/api/catalogApi.js";
+import { optimizePosterUrl } from "../../core/media/imageProxy.js";
 import { addonRepository } from "./addonRepository.js";
 
 class CatalogRepository {
@@ -125,7 +126,7 @@ class CatalogRepository {
       id: meta.id || "",
       name: meta.name || "Untitled",
       type: meta.type || "",
-      poster: meta.poster || null,
+      poster: meta.poster ? optimizePosterUrl(meta.poster) : null,
       background: meta.background || null,
       logo: meta.logo || null,
       description: meta.description || "",

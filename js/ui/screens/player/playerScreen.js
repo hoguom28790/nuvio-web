@@ -2857,8 +2857,10 @@ export const PlayerScreen = {
       this.renderSkipIntroButton();
       return;
     }
-    const { imdbId, season, episode } = this.buildPlaybackIdentityContext();
-    if (!imdbId || !season || !episode) {
+    const { imdbId, tmdbId, itemType, season, episode } = this.buildPlaybackIdentityContext();
+    const isMovie = itemType === "movie";
+    // Movies have no season/episode; episodes need both.
+    if ((!imdbId && !tmdbId) || (!isMovie && (!season || !episode))) {
       this.skipIntervals = [];
       this.activeSkipInterval = null;
       this.skipIntervalDismissed = false;
@@ -2872,7 +2874,17 @@ export const PlayerScreen = {
       this.renderSkipIntroButton();
       return;
     }
-    const intervals = await skipIntroRepository.getSkipIntervals(imdbId, season, episode);
+    // Skip data is only needed once the picture is up, so the requests wait for
+    // the first frame (or a short cap) instead of competing with the stream for
+    // bandwidth while it is still loading.
+    await this.waitForPlaybackToStart(requestToken, 8000);
+    if (this.skipIntervalsRequestToken !== requestToken) {
+      return;
+    }
+    const intervals = await skipIntroRepository.getSkipIntervals(imdbId, season, episode, {
+      tmdbId,
+      itemType: isMovie ? "movie" : "series"
+    });
     if (this.skipIntervalsRequestToken !== requestToken) {
       return;
     }
@@ -2888,12 +2900,40 @@ export const PlayerScreen = {
     this.updateActiveSkipInterval(this.getPlaybackCurrentSeconds());
   },
 
+  waitForPlaybackToStart(requestToken, maxWaitMs) {
+    return new Promise((resolve) => {
+      const startedAt = Date.now();
+      const check = () => {
+        if (
+          this.skipIntervalsRequestToken !== requestToken ||
+          this.hasPresentedPlaybackFrame ||
+          Date.now() - startedAt >= maxWaitMs
+        ) {
+          resolve();
+          return;
+        }
+        setTimeout(check, 300);
+      };
+      check();
+    });
+  },
+
   updateActiveSkipInterval(currentTime = this.getPlaybackCurrentSeconds()) {
     if (!PlayerSettingsStore.get().skipIntroEnabled) {
       if (this.activeSkipInterval != null) {
         this.activeSkipInterval = null;
       }
       return;
+    }
+    // A segment that runs to the end of the media (credits) gets its real end
+    // as soon as the duration is known.
+    const knownDuration = this.getPlaybackDurationSeconds();
+    if (Number.isFinite(knownDuration) && knownDuration > 0) {
+      (Array.isArray(this.skipIntervals) ? this.skipIntervals : []).forEach((interval) => {
+        if (interval?.openEnded && interval.endTime !== knownDuration) {
+          interval.endTime = Math.max(knownDuration, Number(interval.startTime) + 1);
+        }
+      });
     }
     const previous = this.activeSkipInterval;
     let active =
