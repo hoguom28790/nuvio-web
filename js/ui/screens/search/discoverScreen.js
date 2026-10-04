@@ -43,6 +43,9 @@ import { renderLoadingIndicator } from "../../components/loadingIndicator.js";
 import { bindBrowserCardTouchIntent } from "../../components/browserCardTouchIntent.js";
 import { bindMediaContextMenu } from "../../components/mediaContextActions.js";
 
+// Posters in the first rows load right away at high priority; the rest of the
+// grid stays lazy so a page of 100 does not compete with the visible ones.
+const DISCOVER_EAGER_POSTER_COUNT = 18;
 const POSTER_HOLD_DELAY_MS = 650;
 const PICKER_MENU_EXIT_MS = 160;
 
@@ -483,7 +486,7 @@ export const DiscoverScreen = {
                  <div class="seeall-card-poster-wrap">
                    ${
                      item.poster
-                       ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
+                       ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" width="200" height="300" ${index < DISCOVER_EAGER_POSTER_COUNT ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async" />`
                        : `<div class="seeall-card-poster placeholder"></div>`
                    }
                    ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge() : ""}
