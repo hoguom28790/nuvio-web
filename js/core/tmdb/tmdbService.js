@@ -1,6 +1,33 @@
 import { getEffectiveTmdbApiKey, TmdbSettingsStore } from "../../data/local/tmdbSettingsStore.js";
 
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+// api.themoviedb.org is blocked or fails DNS resolution on some networks, which
+// made every plugin source fail (they need a TMDB id). The documented alias
+// api.tmdb.org is tried next, and the host that worked is remembered.
+const TMDB_BASE_URLS = ["https://api.themoviedb.org/3", "https://api.tmdb.org/3"];
+const TMDB_REQUEST_TIMEOUT_MS = 8000;
+let preferredBaseIndex = 0;
+
+export async function tmdbFetch(pathAndQuery, { timeoutMs = TMDB_REQUEST_TIMEOUT_MS } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt < TMDB_BASE_URLS.length; attempt += 1) {
+    const index = (preferredBaseIndex + attempt) % TMDB_BASE_URLS.length;
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const response = await fetch(
+        `${TMDB_BASE_URLS[index]}${pathAndQuery}`,
+        controller ? { signal: controller.signal } : undefined
+      );
+      preferredBaseIndex = index;
+      return response;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw lastError || new Error("TMDB request failed");
+}
 
 function getContentType(type) {
   const normalized = String(type || "").toLowerCase();
@@ -40,8 +67,14 @@ export const TmdbService = {
     }
 
     const contentType = getContentType(type);
-    const url = `${TMDB_BASE_URL}/find/${encodeURIComponent(normalizedIdPart)}?external_source=imdb_id&api_key=${encodeURIComponent(apiKey)}`;
-    const response = await fetch(url);
+    let response;
+    try {
+      response = await tmdbFetch(
+        `/find/${encodeURIComponent(normalizedIdPart)}?external_source=imdb_id&api_key=${encodeURIComponent(apiKey)}`
+      );
+    } catch (_) {
+      return null;
+    }
     if (!response.ok) {
       return null;
     }
@@ -64,8 +97,14 @@ export const TmdbService = {
     }
 
     const contentType = getContentType(type);
-    const url = `${TMDB_BASE_URL}/${contentType}/${encodeURIComponent(numericId)}/external_ids?api_key=${encodeURIComponent(apiKey)}`;
-    const response = await fetch(url);
+    let response;
+    try {
+      response = await tmdbFetch(
+        `/${contentType}/${encodeURIComponent(numericId)}/external_ids?api_key=${encodeURIComponent(apiKey)}`
+      );
+    } catch (_) {
+      return null;
+    }
     if (!response.ok) {
       return null;
     }
