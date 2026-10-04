@@ -420,6 +420,7 @@ export function cleanM3u8Text(content) {
   }
 
   const lines = content.split(/\r?\n/);
+  const countSegments = (list) => list.filter((l) => l.trim() && !l.trim().startsWith("#")).length;
   const cleanedLines = [];
   let currentTags = [];
   let inAdBlock = false;
@@ -433,7 +434,7 @@ export function cleanM3u8Text(content) {
       currentTags.push(line);
     } else {
       // Check for known ad patterns
-      const isAd = /convertv\d*\/|\/v\d+\/.*segment_|segment_\d{4}/i.test(trimmed);
+      const isAd = /convertv\d*\/|\/v\d+\/.*segment_/i.test(trimmed);
       if (isAd) {
         currentTags = [];
         inAdBlock = true;
@@ -466,6 +467,15 @@ export function cleanM3u8Text(content) {
 
   for (const tag of currentTags) {
     cleanedLines.push(tag);
+  }
+
+  // Safety net: ad blocks are a small part of a playlist. If the filter would
+  // remove most of it, the pattern matched ordinary segment names (for example
+  // "segment_0001.ts"), so keep the original playlist instead of emptying it.
+  const before = countSegments(lines);
+  const after = countSegments(cleanedLines);
+  if (before > 0 && after < before * 0.7) {
+    return content;
   }
 
   return cleanedLines.join("\n");

@@ -13,8 +13,7 @@ import {
   getAllocatedQuotaBytes,
   MultiThreadedPreloader,
   createMultiThreadedHlsLoader,
-  createCleanPlaylistLoader,
-  MultiThreadedRangePreloader
+  createCleanPlaylistLoader
 } from "./multiThreadedPreloader.js";
 
 const MIN_PROGRESS_SYNC_DURATION_MS = 1000;
@@ -851,11 +850,10 @@ export const PlayerController = {
     if (!nativeVideoEngine.load(this.video, url, mimeType)) {
       return false;
     }
+    // No parallel range preloading here: the responses were discarded and the
+    // extra connections competed with the video element, which direct links
+    // that limit connections per file cannot afford.
     this.playbackEngine = String(engineName || "native-file");
-    if (this.playbackEngine === "native-file") {
-      this.rangePreloader = new MultiThreadedRangePreloader({ concurrency: 4 });
-      this.rangePreloader.start(url, this.currentPlaybackHeaders);
-    }
     return true;
   },
 
