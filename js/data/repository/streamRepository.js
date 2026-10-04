@@ -195,7 +195,9 @@ class StreamRepository {
   async getPluginStreams(type, videoId, options = {}) {
     const mediaType = type === "series" ? "tv" : type;
     const tmdbLookupId = String(options?.itemId || videoId || "").trim();
-    const tmdbId = await TmdbService.ensureTmdbId(tmdbLookupId, type);
+    const tmdbId =
+      TmdbService.getKnownTmdbId(tmdbLookupId, type) ||
+      (await TmdbService.ensureTmdbId(tmdbLookupId, type));
     if (!tmdbId) {
       return [];
     }

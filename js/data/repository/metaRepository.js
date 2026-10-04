@@ -1,6 +1,7 @@
 import { safeApiCall } from "../../core/network/safeApiCall.js";
 import { addonRepository } from "./addonRepository.js";
 import { MetaApi } from "../remote/api/metaApi.js";
+import { TmdbService } from "../../core/tmdb/tmdbService.js";
 
 function normalizeDisplayText(value) {
   return String(value ?? "")
@@ -202,6 +203,12 @@ class MetaRepository {
       Object.keys(meta).length === 0
     ) {
       return null;
+    }
+
+    try {
+      TmdbService.rememberTmdbId(meta.id, meta.type, meta.moviedb_id ?? meta.tmdb_id);
+    } catch (_) {
+      // Never let id bookkeeping break meta loading.
     }
 
     return {

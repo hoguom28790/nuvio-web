@@ -69,3 +69,30 @@ test("an HTTP error response is returned, not retried on another host", async ()
   );
   assert.equal(calls, 1);
 });
+
+const { TmdbService } = await import("./tmdbService.js");
+
+test("a TMDB id from Cinemeta meta is remembered and found without any request", () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("no network expected");
+  };
+  try {
+    assert.equal(TmdbService.getKnownTmdbId("tt0983213", "movie"), null);
+    assert.equal(TmdbService.rememberTmdbId("tt0983213", "movie", 38142), true);
+    assert.equal(TmdbService.getKnownTmdbId("tt0983213", "movie"), "38142");
+    // Series ids carry season/episode; movies and series are kept apart.
+    assert.equal(TmdbService.rememberTmdbId("tt0944947", "series", "1399"), true);
+    assert.equal(TmdbService.getKnownTmdbId("tt0944947:1:2", "series"), "1399");
+    assert.equal(TmdbService.getKnownTmdbId("tt0944947", "movie"), null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("invalid ids are ignored", () => {
+  assert.equal(TmdbService.rememberTmdbId("kitsu:1", "movie", 5), false);
+  assert.equal(TmdbService.rememberTmdbId("tt1", "movie", "abc"), false);
+  assert.equal(TmdbService.rememberTmdbId("tt1", "movie", null), false);
+  assert.equal(TmdbService.getKnownTmdbId("", "movie"), null);
+});
