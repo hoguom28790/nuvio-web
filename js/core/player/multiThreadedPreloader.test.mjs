@@ -92,7 +92,8 @@ test("a finished preloader download is served without a second request", async (
     { onSuccess: (response) => (delivered = response) }
   );
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(delivered?.data, buffer);
+  assert.equal(delivered?.data.byteLength, buffer.byteLength);
+  assert.notEqual(delivered?.data, buffer);
   assert.equal(calls.length, 0);
 });
 
@@ -111,4 +112,55 @@ test("a preloader download that never answers is aborted and released", async ()
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test("cached data goes through onProgress before onSuccess, as a copy", async () => {
+  const { Hls, calls } = fakeHls();
+  const url = "https://cdn.example/seg4.ts";
+  const stored = new Uint8Array([1, 2, 3, 4]).buffer;
+  const preloader = {
+    cache: { has: () => true, get: () => stored },
+    activeDownloads: new Map()
+  };
+  const Loader = createMultiThreadedHlsLoader(Hls, preloader);
+  const order = [];
+  let progressData = null;
+  const loader = new Loader();
+  loader.stats = { loading: { start: 0, first: 0, end: 0 }, loaded: 0, total: 0 };
+  loader.load(
+    { url, frag: { start: 0 } },
+    {},
+    {
+      onProgress: (stats, context, data) => {
+        order.push("progress");
+        progressData = data;
+      },
+      onSuccess: () => order.push("success")
+    }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(order, ["progress", "success"]);
+  assert.notEqual(progressData, stored);
+  assert.equal(progressData.byteLength, 4);
+  assert.equal(loader.stats.loaded, 4);
+  assert.ok(loader.stats.loading.end > loader.stats.loading.first);
+  assert.equal(calls.length, 0);
+});
+
+test("a detached buffer after a normal load does not stop hls.js from being notified", () => {
+  const url = "https://cdn.example/seg5.ts";
+  const detached = new ArrayBuffer(8);
+  structuredClone(detached, { transfer: [detached] });
+  let loaded = false;
+  class BaseLoader {
+    load(context, config, callbacks) {
+      callbacks.onSuccess({ url, data: detached }, {}, context, null);
+    }
+  }
+  const Loader = createMultiThreadedHlsLoader(
+    { DefaultConfig: { loader: BaseLoader } },
+    { cache: { has: () => false, put() {} }, activeDownloads: new Map() }
+  );
+  new Loader().load({ url, frag: { start: 0 } }, {}, { onSuccess: () => (loaded = true) });
+  assert.equal(loaded, true);
 });
