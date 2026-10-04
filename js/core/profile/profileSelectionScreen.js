@@ -2283,12 +2283,16 @@ export const ProfileSelectionScreen = {
       // the route mounts — otherwise the overlay disappears early and Home's
       // own loading skeleton takes over for the remainder of the fetch,
       // which reads as two different loading states stacked back to back.
-      const criticalHydration = await criticalHydrationPromise;
+      // Both waits are capped: if the backend or an add-on stalls, Home still
+      // opens with local data instead of leaving the overlay up forever.
+      const capWait = (promise, ms) =>
+        Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+      const criticalHydration = await capWait(criticalHydrationPromise, 12000);
       if (HomeScreen.initialLoadPromise) {
-        await HomeScreen.initialLoadPromise;
+        await capWait(HomeScreen.initialLoadPromise, 15000);
       }
       hideProfileActivationTransitionOverlay(transitionOverlay);
-      if (criticalHydration.current) {
+      if (criticalHydration?.current) {
         void StartupSyncService.requestSyncNow({ criticalHydration }).catch((error) => {
           console.warn("Profile background sync failed", error);
         });
