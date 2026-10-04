@@ -46,12 +46,26 @@ async function requestBrowserBridge(path, { method = "POST", body = null } = {})
   return { response, payload: await readResponseBody(response) };
 }
 
+const BRIDGE_UNAVAILABLE_RETRY_MS = 5 * 60 * 1000;
+let bridgeUnavailableAt = 0;
+
 async function ensureBrowserAuthBridge() {
+  // A host without the bridge (static hosting) answers 404 every time; probing
+  // on each Trakt call only adds failing requests, so remember it for a while.
+  if (
+    browserBridgeStatus === "unavailable" &&
+    Date.now() - bridgeUnavailableAt < BRIDGE_UNAVAILABLE_RETRY_MS
+  ) {
+    return false;
+  }
   try {
     const { response, payload } = await requestBrowserBridge("/health", { method: "GET" });
     browserBridgeStatus = response.ok && payload?.configured === true ? "available" : "unavailable";
   } catch {
     browserBridgeStatus = "unavailable";
+  }
+  if (browserBridgeStatus === "unavailable") {
+    bridgeUnavailableAt = Date.now();
   }
   return browserBridgeStatus === "available";
 }
