@@ -1,4 +1,3 @@
-import { TraktScrobbleService } from "./traktScrobbleService.js";
 import { SimklScrobbleService } from "./simklScrobbleService.js";
 import {
   shouldSendTerminalScrobbleReport,
@@ -6,7 +5,10 @@ import {
   terminalScrobbleReportKey
 } from "./terminalScrobbleReport.js";
 
-const providers = [TraktScrobbleService, SimklScrobbleService];
+// Trakt is intentionally not a playback scrobble provider: playback must not
+// touch Trakt (token refresh and bridge probes added requests to every
+// play/pause/stop). Trakt remains available for library and progress sync.
+const providers = [SimklScrobbleService];
 let lastTerminalReportKey = "";
 
 function enabledProviders() {
