@@ -7,6 +7,11 @@
  * Guarantees smooth, instant playback when seeking forwards or backwards.
  */
 
+const FRAGMENT_DOWNLOAD_TIMEOUT_MS = 25000;
+// How long the HLS fragment loader waits for a fragment the preloader is
+// already fetching before it requests the fragment itself.
+const PRELOADER_WAIT_MS = 5000;
+
 let allocatedQuotaBytes = 512 * 1024 * 1024; // Default fallback: 512 MB
 let isQuotaCalculated = false;
 
@@ -130,7 +135,12 @@ export class SegmentCache {
  * within a 10-minute forward window.
  */
 export class MultiThreadedPreloader {
-  constructor({ concurrency = 4, prefetchWindowSeconds = 600 } = {}) {
+  constructor({
+    concurrency = 4,
+    prefetchWindowSeconds = 600,
+    downloadTimeoutMs = FRAGMENT_DOWNLOAD_TIMEOUT_MS
+  } = {}) {
+    this.downloadTimeoutMs = downloadTimeoutMs;
     this.concurrency = concurrency;
     this.prefetchWindowSeconds = prefetchWindowSeconds;
     this.cache = new SegmentCache();
@@ -215,6 +225,13 @@ export class MultiThreadedPreloader {
 
   downloadFragment(frag) {
     const controller = new AbortController();
+    // A request the CDN never answers must not stay "active" forever: the HLS
+    // loader waits on this promise, so a hung download stalled playback.
+    const timeoutTimer = setTimeout(() => {
+      try {
+        controller.abort();
+      } catch (_) {}
+    }, this.downloadTimeoutMs);
     const promise = (async () => {
       try {
         const response = await fetch(frag.url, {
@@ -230,6 +247,7 @@ export class MultiThreadedPreloader {
       } catch (_) {
         // Aborted or network error, silently handle
       } finally {
+        clearTimeout(timeoutTimer);
         this.activeDownloads.delete(frag.url);
         this.processQueue();
       }
@@ -257,7 +275,7 @@ export class MultiThreadedPreloader {
  * Creates an Hls.js custom fragment loader that checks the MultiThreadedPreloader cache
  * before issuing network requests. Enables instant seek response.
  */
-export function createMultiThreadedHlsLoader(Hls, preloader) {
+export function createMultiThreadedHlsLoader(Hls, preloader, { waitMs = PRELOADER_WAIT_MS } = {}) {
   const BaseLoader = Hls?.DefaultConfig?.loader;
   if (!BaseLoader) {
     return null;
@@ -292,7 +310,19 @@ export function createMultiThreadedHlsLoader(Hls, preloader) {
       if (preloader && preloader.activeDownloads.has(url)) {
         const active = preloader.activeDownloads.get(url);
         if (active?.promise) {
+          let settled = false;
+          const loadDirectly = () => {
+            if (settled) return;
+            settled = true;
+            super.load(context, config, callbacks);
+          };
+          // Never wait indefinitely: if the preloader's request is slow, load
+          // the fragment through the normal loader instead.
+          const waitTimer = setTimeout(loadDirectly, waitMs);
           active.promise.then((buffer) => {
+            clearTimeout(waitTimer);
+            if (settled) return;
+            settled = true;
             if (buffer) {
               const stats = {
                 trequest: performance.now(),
@@ -308,7 +338,8 @@ export function createMultiThreadedHlsLoader(Hls, preloader) {
               super.load(context, config, callbacks);
             }
           }).catch(() => {
-            super.load(context, config, callbacks);
+            clearTimeout(waitTimer);
+            loadDirectly();
           });
           return;
         }

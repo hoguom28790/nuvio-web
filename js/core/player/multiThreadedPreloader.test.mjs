@@ -49,3 +49,66 @@ test("master playlists and non-playlists are unchanged", () => {
   const master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nlow.m3u8";
   assert.equal(cleanM3u8Text(master), master);
 });
+
+import { MultiThreadedPreloader, createMultiThreadedHlsLoader } from "./multiThreadedPreloader.js";
+
+function fakeHls() {
+  const calls = [];
+  class BaseLoader {
+    load(context, config, callbacks) {
+      calls.push({ context, callbacks });
+    }
+  }
+  return { Hls: { DefaultConfig: { loader: BaseLoader } }, calls };
+}
+
+test("the HLS loader stops waiting on a hung preloader download", async () => {
+  const { Hls, calls } = fakeHls();
+  const url = "https://cdn.example/seg1.ts";
+  const preloader = {
+    cache: { has: () => false },
+    activeDownloads: new Map([[url, { promise: new Promise(() => {}) }]])
+  };
+  const Loader = createMultiThreadedHlsLoader(Hls, preloader, { waitMs: 30 });
+  new Loader().load({ url, frag: { start: 0 } }, {}, { onSuccess() {} });
+  assert.equal(calls.length, 0);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(calls.length, 1);
+});
+
+test("a finished preloader download is served without a second request", async () => {
+  const { Hls, calls } = fakeHls();
+  const url = "https://cdn.example/seg2.ts";
+  const buffer = new ArrayBuffer(8);
+  const preloader = {
+    cache: { has: () => false },
+    activeDownloads: new Map([[url, { promise: Promise.resolve(buffer) }]])
+  };
+  const Loader = createMultiThreadedHlsLoader(Hls, preloader, { waitMs: 1000 });
+  let delivered = null;
+  new Loader().load(
+    { url, frag: { start: 0 } },
+    {},
+    { onSuccess: (response) => (delivered = response) }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(delivered?.data, buffer);
+  assert.equal(calls.length, 0);
+});
+
+test("a preloader download that never answers is aborted and released", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (url, init) =>
+    new Promise((resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+    });
+  try {
+    const preloader = new MultiThreadedPreloader({ downloadTimeoutMs: 30 });
+    const promise = preloader.downloadFragment({ url: "https://cdn.example/seg3.ts", start: 0 });
+    assert.equal(preloader.activeDownloads.size, 1);
+    assert.equal(await promise, null);
+    assert.equal(preloader.activeDownloads.size, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
